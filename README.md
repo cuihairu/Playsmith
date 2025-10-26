@@ -17,20 +17,20 @@ flowchart LR
   end
 
   subgraph AppLayer[Playsmith App Layer]
-    API[API Gateway<br/>(Fabric Gateway SDK)] -- emit events --> IDX
-    IDX[Indexer & Event Consumer] -- upsert --> DB[(Postgres)]
+    API[API Gateway (Fabric Gateway SDK)] -- emit events --> IDX
+    IDX[Indexer and Event Consumer] -- upsert --> DB[(Postgres)]
     API -- query --> DB
     API -- invoke/query --> PEER1
   end
 
   subgraph Fabric[Hyperledger Fabric Network]
-    ORDR[Orderer (Raft/SmartBFT)]
-    subgraph Org1[Org1 (GameStudio)]
-      PEER1[Peer (LevelDB)]
+    ORDR[Orderer (Raft or SmartBFT)]
+    subgraph Org1[Org1 - GameStudio]
+      PEER1[Peer - LevelDB]
       PVT1[(Private Data Coll. Org1/Org2)]
     end
-    subgraph Org2[Org2 (Operator/Marketplace)]
-      PEER2[Peer (LevelDB)]
+    subgraph Org2[Org2 - Operator/Marketplace]
+      PEER2[Peer - LevelDB]
       PVT2[(Private Data Coll. Org1/Org2)]
     end
     CC[Chaincode: playsmith-assets]
