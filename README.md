@@ -100,15 +100,15 @@ Web UI
 2) 部署链码
    - `./network.sh deployCC -c playsmith -ccn playsmith-assets -ccl go -ccp ../../Playsmith/chaincode/playsmith-assets`
 3) 启动应用层
-   - API：`cmd/api`（Go；当前 `internal/sdk` 为 `Client` 接口 + `NoopClient` 占位实现，Fabric Gateway SDK 接入待补）
-   - Indexer：`cmd/indexer`（当前为占位进程；订阅事件并入库 Postgres 待实现）
+   - API：`cmd/api`（Go；设置 `FABRIC_GATEWAY_ENDPOINT` 等环境变量时使用真实 Fabric Gateway 客户端，否则回退 `NoopClient` 开发模式）
+   - Indexer：`cmd/indexer`（订阅链码事件并 upsert 到 Postgres；需 `POSTGRES_DSN` 与 Fabric 环境变量）
    - Web UI：`web/`（当前为占位；查询页待实现）
 
 参考目录
 - `chaincode/playsmith-assets/`：链码（Go，已实现 Mint/Transfer/Batch/List/Buy/Cancel/approvals/supply/private price）
 - `cmd/api/`：API Gateway（REST + 批量；gRPC 与 JWT 鉴权待实现）
-- `cmd/indexer/`：事件订阅与入库（占位）
-- `internal/sdk/`：Fabric SDK 封装（接口已定义，Gateway 实现待补）
+- `cmd/indexer/`：事件订阅与入库（Fabric Gateway 事件 + Postgres）
+- `internal/sdk/`：Fabric SDK 封装（`Client` 接口 + `NoopClient` 开发占位 + `GatewayClient` 真实实现）
 - `web/`：前端（查询页，占位）
 - `deploy/`：本地一键脚本与 Docker 组合
 
@@ -133,14 +133,14 @@ Fabric 层
 - 私有数据集合：价格、对手、结算明细仅 Org1/Org2 可见；链上存哈希校验
 
 ## 路线图
-- [x] 链码 v0：Mint/Transfer/List/Buy + 事件（另含 BatchMint/BatchTransfer/approvals/supply/私有价格上架；鉴权校验仍是 TODO，见 SPEC.md）
-- [x] API Gateway（REST + 批量；当前 Fabric 调用为 NoopClient 占位）
+- [x] 链码 v0：Mint/Transfer/List/Buy + 事件（另含 BatchMint/BatchTransfer/approvals/supply/私有价格上架；鉴权校验已实现，见 SPEC.md）
+- [x] API Gateway（REST + 批量；Fabric 调用可切换真实 `GatewayClient`，默认 `NoopClient` 开发模式）
 - [ ] API Gateway：JWT 鉴权与 gRPC
-- [ ] Indexer（订阅 Fabric 事件）+ Postgres schema
-- [ ] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
+- [x] Indexer（订阅 Fabric 事件）+ Postgres schema
+- [x] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
 - [ ] Web UI（资产/卖单/成交）
 - [ ] 压测脚本（Caliper/自研）与调优模板
-- [ ] SBE 样例与 `playsmithPvt` 集合的 collections 配置文件
+- [x] SBE 样例与 `playsmithPvt` 集合的 collections 配置文件
 
 ## 许可
 本项目遵循本仓库 LICENSE。

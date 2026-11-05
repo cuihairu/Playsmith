@@ -13,9 +13,9 @@ State Keys (Composite)
 - `meta~{id}` -> JSON `{ tokenId, uri, creator, supplyCap? }`
 - `supply~{id}` -> uint64 (decimal string)
 - `op~{owner}~{operator}` -> "1" or "0"
-- `ask~{id}~{seller}~{listingId}` -> public listing: `"<price>:<amount>"` (decimal string); private listing: JSON `{ amount, priceHash }`
+- `ask~{id}~{seller}~{listingId}` -> JSON `{ amount, price?, priceHash?, ts }` (public listing has `price`; private listing has `priceHash` instead)
 - Private Data (optional): collection `playsmithPvt`
-  - `askpvt~{id}~{seller}~{listingId}` -> JSON `{ price }`
+  - `askpvt~{id}~{seller}~{listingId}` -> JSON `{ price, ts }`
 
 Transactions (Chaincode)
 - Assets
@@ -41,19 +41,19 @@ Events (JSON payloads)
 - `URI`: `{ id, uri }`
 - `AskCreated`: `{ id, seller, listingId, amount, price, priceHash }` (public listing: no `priceHash` key; private listing: `price` emitted as `0` and `priceHash` present)
 - `AskCanceled`: `{ id, seller, listingId }`
-- `Trade`: `{ id, seller, buyer, listingId, amount }` (current chaincode emits no `price`/`priceHash` fields on this event, for public and private listings alike)
+- `Trade`: `{ id, seller, buyer, listingId, amount, price, priceHash }` (public listing emits real `price`, no `priceHash` key; private listing emits `price=0` and `priceHash`)
 
-Authorization (spec target — **not yet enforced** in the current chaincode; the code carries TODOs at Mint/Transfer, see `chaincode/playsmith-assets/main.go`)
-- MINTER: cert attribute `role=MINTER` or MSP allowlist. (TODO in `Mint`.)
-- Transfers: invoker must be owner or approved operator. (TODO in `Transfer`.)
-- Listings: seller must have at least `amount` balance. (Not checked in `ListForSale`.)
+Authorization (enforced in `chaincode/playsmith-assets/main.go`)
+- MINTER: cert attribute `role=MINTER` required by `Mint`.
+- Transfers: invoker must be owner or approved operator (`op~{owner}~{operator}` == "1").
+- Listings: seller must have at least `amount` balance.
 
 Concurrency & Idempotency
 - Use listingId = `TxID` by default. Optional external idempotency key can be implemented via `dedup~{extId}`.
 - Keys are sharded by `(id, owner)` to minimize MVCC conflicts.
 
 API Mapping (Gateway)
-- REST (request bodies use the gateway's JSON field names, `tokenId` etc.; `GET /api/v1/assets/{id}/balance/{owner}` is currently dead — the route parser never matches it and always answers 404, tracked in `todo.md`)
+- REST (request bodies use the gateway's JSON field names, `tokenId` etc.; `GET /api/v1/assets/{id}/balance/{owner}` works after the route-parser fix)
   - POST `/api/v1/assets/mint` `{ tokenId, to, uri, amount }`
   - POST `/api/v1/assets/batchMint` `{ ids, tos, amounts, uris }`
   - POST `/api/v1/assets/transfer` `{ tokenId, from, to, amount }`
@@ -65,7 +65,7 @@ API Mapping (Gateway)
   - GET  `/api/v1/assets/{id}/totalSupply`
   - POST `/api/v1/market/list` `{ tokenId, seller, amount, price }`
   - POST `/api/v1/market/list-private` `{ tokenId, seller, amount, price }` (price sent via transient)
-  - POST `/api/v1/market/cancel` `{ TokenID, Seller, ListingID }` (this handler's body struct has no json tags — Go default capitalized keys)
+  - POST `/api/v1/market/cancel` `{ tokenId, seller, listingId }` (body struct uses lowercase json tags)
   - POST `/api/v1/market/buy` `{ tokenId, seller, listingId, buyer, amount }`
 - gRPC: **not implemented**; planned to mirror the REST surface (returns TxID, block number and event receipts).
 

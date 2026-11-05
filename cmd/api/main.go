@@ -1,6 +1,7 @@
 package main
 
 import (
+    "context"
     "encoding/json"
     "fmt"
     "log"
@@ -101,7 +102,11 @@ func (s *Server) listPrivate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
-    var body struct{ TokenID, Seller, ListingID string }
+    var body struct {
+        TokenID   string `json:"tokenId"`
+        Seller    string `json:"seller"`
+        ListingID string `json:"listingId"`
+    }
     if err := json.NewDecoder(r.Body).Decode(&body); err != nil { http.Error(w, err.Error(), 400); return }
     res, err := s.Fabric.Submit("playsmith-assets", "CancelListing", body.TokenID, body.Seller, body.ListingID)
     writeJSON(w, res, err)
@@ -165,51 +170,73 @@ func writeJSON(w http.ResponseWriter, res string, err error) {
 func itoa(v uint64) string { return fmt.Sprintf("%d", v) }
 
 func main() {
-    // minimal net/http with patterns (Go 1.22+ PathValue)
-    s := &Server{Fabric: &sdk.NoopClient{}}
-    http.HandleFunc("/api/v1/assets/mint", s.mint)
-    http.HandleFunc("/api/v1/assets/batchMint", s.batchMint)
-    http.HandleFunc("/api/v1/assets/transfer", s.transfer)
-    http.HandleFunc("/api/v1/assets/batchTransfer", s.batchTransfer)
-    http.HandleFunc("/api/v1/assets/approveAll", s.approveAll)
-    http.HandleFunc("/api/v1/market/list", s.list)
-    http.HandleFunc("/api/v1/market/list-private", s.listPrivate)
-    http.HandleFunc("/api/v1/market/cancel", s.cancel)
-    http.HandleFunc("/api/v1/market/buy", s.buy)
-    http.HandleFunc("/api/v1/assets/", func(w http.ResponseWriter, r *http.Request) {
-        // expect /api/v1/assets/{tokenId}/balance/{owner}
-        if r.Method != http.MethodGet { http.NotFound(w, r); return }
-        // crude parse
-        parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/assets/"), "/")
-        if len(parts) == 2 && parts[1] == "uri" {
-            res, err := s.Fabric.Evaluate("playsmith-assets", "URI", parts[0])
-            writeJSON(w, res, err)
-            return
+    s := &Server{}
+    if v := os.Getenv("FABRIC_GATEWAY_ENDPOINT"); v != "" {
+        gc, err := sdk.NewGatewayClient(context.Background(), sdk.Config{
+            MSPID:          os.Getenv("FABRIC_MSP_ID"),
+            CertPath:       os.Getenv("FABRIC_CERT_PATH"),
+            KeyPath:        os.Getenv("FABRIC_KEY_PATH"),
+            TLSCertPath:    os.Getenv("FABRIC_TLS_PATH"),
+            GatewayAddress: v,
+            ChannelName:    os.Getenv("FABRIC_CHANNEL_NAME"),
+            ChaincodeName:  "playsmith-assets",
+        })
+        if err != nil {
+            log.Fatalf("Fabric Gateway client: %v", err)
         }
-        if len(parts) == 2 && parts[1] == "exists" {
-            res, err := s.Fabric.Evaluate("playsmith-assets", "Exists", parts[0])
-            writeJSON(w, res, err)
-            return
-        }
-        if len(parts) == 2 && parts[1] == "totalSupply" {
-            res, err := s.Fabric.Evaluate("playsmith-assets", "TotalSupply", parts[0])
-            writeJSON(w, res, err)
-            return
-        }
-        if len(parts) == 4 && parts[1] == "balance" {
-            // /{tokenId}/balance/{owner}
-            // create a fake PathValue handler by reusing write directly
-            tokenID := parts[0]
-            owner := parts[2]
-            res, err := s.Fabric.Evaluate("playsmith-assets", "BalanceOf", tokenID, owner)
-            writeJSON(w, res, err)
-            return
-        }
-        http.NotFound(w, r)
-    })
+        s.Fabric = gc
+    } else {
+        s.Fabric = &sdk.NoopClient{}
+        log.Printf("FABRIC_GATEWAY_ENDPOINT unset; using NoopClient (dev mode)")
+    }
+    addr := ":8080"
+    if v := os.Getenv("PORT"); v != "" { addr = ":" + v }
+    log.Printf("API listening on %s", addr)
+    http.ListenAndServe(addr, s.router())
+}
 
-	addr := ":8080"
-	if v := os.Getenv("PORT"); v != "" { addr = ":" + v }
-	log.Printf("API listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+func (s *Server) router() http.Handler {
+    mux := http.NewServeMux()
+    mux.HandleFunc("/api/v1/assets/mint", s.mint)
+    mux.HandleFunc("/api/v1/assets/batchMint", s.batchMint)
+    mux.HandleFunc("/api/v1/assets/transfer", s.transfer)
+    mux.HandleFunc("/api/v1/assets/batchTransfer", s.batchTransfer)
+    mux.HandleFunc("/api/v1/assets/approveAll", s.approveAll)
+    mux.HandleFunc("/api/v1/market/list", s.list)
+    mux.HandleFunc("/api/v1/market/list-private", s.listPrivate)
+    mux.HandleFunc("/api/v1/market/cancel", s.cancel)
+    mux.HandleFunc("/api/v1/market/buy", s.buy)
+    mux.HandleFunc("/api/v1/assets/", s.assetRoute)
+    return mux
+}
+
+func (s *Server) assetRoute(w http.ResponseWriter, r *http.Request) {
+    // expect /api/v1/assets/{tokenId}/balance/{owner}
+    if r.Method != http.MethodGet { http.NotFound(w, r); return }
+    // crude parse
+    parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/assets/"), "/")
+    if len(parts) == 2 && parts[1] == "uri" {
+        res, err := s.Fabric.Evaluate("playsmith-assets", "URI", parts[0])
+        writeJSON(w, res, err)
+        return
+    }
+    if len(parts) == 2 && parts[1] == "exists" {
+        res, err := s.Fabric.Evaluate("playsmith-assets", "Exists", parts[0])
+        writeJSON(w, res, err)
+        return
+    }
+    if len(parts) == 2 && parts[1] == "totalSupply" {
+        res, err := s.Fabric.Evaluate("playsmith-assets", "TotalSupply", parts[0])
+        writeJSON(w, res, err)
+        return
+    }
+    if len(parts) == 3 && parts[1] == "balance" {
+        // /{tokenId}/balance/{owner} splits into 3 segments
+        tokenID := parts[0]
+        owner := parts[2]
+        res, err := s.Fabric.Evaluate("playsmith-assets", "BalanceOf", tokenID, owner)
+        writeJSON(w, res, err)
+        return
+    }
+    http.NotFound(w, r)
 }

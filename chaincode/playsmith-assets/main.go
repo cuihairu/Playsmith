@@ -5,8 +5,8 @@ import (
     "encoding/hex"
     "encoding/json"
     "errors"
-    "fmt"
     "strconv"
+	"strings"
 
     "github.com/hyperledger/fabric-contract-api-go/contractapi"
 )
@@ -29,7 +29,9 @@ func (c *GameContract) Mint(ctx contractapi.TransactionContextInterface, tokenID
     if tokenID == "" || to == "" || amount == 0 {
         return errors.New("invalid args")
     }
-    // TODO: check client role attribute == MINTER
+    if err := requireMinter(ctx); err != nil {
+        return err
+    }
     if err := putAddBalance(ctx, tokenID, to, amount); err != nil {
         return err
     }
@@ -58,7 +60,9 @@ func (c *GameContract) Transfer(ctx contractapi.TransactionContextInterface, tok
     if tokenID == "" || from == "" || to == "" || amount == 0 {
         return errors.New("invalid args")
     }
-    // TODO: check ownership / operator approvals
+    if err := requireTransferAuth(ctx, from); err != nil {
+        return err
+    }
     if err := putSubBalance(ctx, tokenID, from, amount); err != nil {
         return err
     }
@@ -74,10 +78,12 @@ func (c *GameContract) ListForSale(ctx contractapi.TransactionContextInterface, 
 	if tokenID == "" || seller == "" || amount == 0 {
 		return "", errors.New("invalid args")
 	}
-	// Note: in production use private data collection for sensitive price
+	if err := requireBalance(ctx, tokenID, seller, amount); err != nil {
+		return "", err
+	}
 	listingID := ctx.GetStub().GetTxID()
 	key, _ := ctx.GetStub().CreateCompositeKey("ask", []string{tokenID, seller, listingID})
-	val := []byte(strconv.FormatUint(price, 10) + ":" + strconv.FormatUint(amount, 10))
+	val, _ := json.Marshal(map[string]any{"amount": amount, "price": price, "ts": txTS(ctx)})
     if err := ctx.GetStub().PutState(key, val); err != nil {
         return "", err
     }
@@ -98,6 +104,25 @@ func (c *GameContract) Buy(ctx contractapi.TransactionContextInterface, tokenID,
 	if len(v) == 0 {
 		return errors.New("listing not found")
 	}
+	var ask struct {
+		Amount    uint64  `json:"amount"`
+		Price     *uint64 `json:"price"`
+		PriceHash string  `json:"priceHash"`
+	}
+	if err := json.Unmarshal(v, &ask); err != nil {
+		// Backward compatibility: pre-JSON listings stored "<price>:<amount>".
+		parts := strings.SplitN(string(v), ":", 2)
+		if len(parts) != 2 {
+			return errors.New("invalid listing state")
+		}
+		price, perr := strconv.ParseUint(parts[0], 10, 64)
+		amt, aerr := strconv.ParseUint(parts[1], 10, 64)
+		if perr != nil || aerr != nil {
+			return errors.New("invalid listing state")
+		}
+		ask.Amount = amt
+		ask.Price = &price
+	}
 	if err := putSubBalance(ctx, tokenID, seller, amount); err != nil {
 		return err
 	}
@@ -107,7 +132,16 @@ func (c *GameContract) Buy(ctx contractapi.TransactionContextInterface, tokenID,
     if err := ctx.GetStub().DelState(askKey); err != nil {
         return err
     }
-    _ = emitEvent(ctx, "Trade", map[string]any{"id": tokenID, "seller": seller, "buyer": buyer, "listingId": listingID, "amount": amount})
+    tradePayload := map[string]any{"id": tokenID, "seller": seller, "buyer": buyer, "listingId": listingID, "amount": amount}
+    if ask.Price != nil {
+        // public listing: real price, no priceHash key
+        tradePayload["price"] = *ask.Price
+    } else {
+        // private listing: keep price hidden (emit 0), publish priceHash
+        tradePayload["price"] = 0
+        tradePayload["priceHash"] = ask.PriceHash
+    }
+    _ = emitEvent(ctx, "Trade", tradePayload)
     return nil
 }
 
@@ -205,6 +239,7 @@ func (c *GameContract) Exists(ctx contractapi.TransactionContextInterface, token
 // ListForSalePrivate stores price in private data, public state has amount and priceHash
 func (c *GameContract) ListForSalePrivate(ctx contractapi.TransactionContextInterface, tokenID, seller string, amount uint64) (string, error) {
     if tokenID == "" || seller == "" || amount == 0 { return "", errors.New("invalid args") }
+    if err := requireBalance(ctx, tokenID, seller, amount); err != nil { return "", err }
     // expect transient key "price" with bytes of price as decimal string
     tm, err := ctx.GetStub().GetTransient()
     if err != nil { return "", err }
@@ -215,12 +250,12 @@ func (c *GameContract) ListForSalePrivate(ctx contractapi.TransactionContextInte
     listingID := ctx.GetStub().GetTxID()
     askKey, _ := ctx.GetStub().CreateCompositeKey("ask", []string{tokenID, seller, listingID})
     // store public with amount and priceHash
-    pv := map[string]any{"amount": amount, "priceHash": priceHash}
+    pv := map[string]any{"amount": amount, "priceHash": priceHash, "ts": txTS(ctx)}
     pvb, _ := json.Marshal(pv)
     if err := ctx.GetStub().PutState(askKey, pvb); err != nil { return "", err }
     // store private price
     pvtKey, _ := ctx.GetStub().CreateCompositeKey("askpvt", []string{tokenID, seller, listingID})
-    pdoc := map[string]any{"price": string(pb)}
+    pdoc := map[string]any{"price": string(pb), "ts": txTS(ctx)}
     pdocb, _ := json.Marshal(pdoc)
     if err := ctx.GetStub().PutPrivateData("playsmithPvt", pvtKey, pdocb); err != nil { return "", err }
     _ = emitEvent(ctx, "AskCreated", map[string]any{"id": tokenID, "seller": seller, "listingId": listingID, "amount": amount, "price": 0, "priceHash": priceHash})
@@ -241,6 +276,53 @@ func (c *GameContract) CancelListing(ctx contractapi.TransactionContextInterface
 // helpers
 func balKey(ctx contractapi.TransactionContextInterface, tokenID, owner string) (string, error) {
     return ctx.GetStub().CreateCompositeKey("bal", []string{tokenID, owner})
+}
+
+func getBalance(ctx contractapi.TransactionContextInterface, tokenID, owner string) (uint64, error) {
+	k, _ := balKey(ctx, tokenID, owner)
+	b, err := ctx.GetStub().GetState(k)
+	if err != nil { return 0, err }
+	if len(b) == 0 { return 0, nil }
+	return strconv.ParseUint(string(b), 10, 64)
+}
+
+func requireBalance(ctx contractapi.TransactionContextInterface, tokenID, owner string, amt uint64) error {
+	bal, err := getBalance(ctx, tokenID, owner)
+	if err != nil { return err }
+	if bal < amt { return errors.New("insufficient balance") }
+	return nil
+}
+
+func requireMinter(ctx contractapi.TransactionContextInterface) error {
+	ci := ctx.GetClientIdentity()
+	if ci == nil {
+		return errors.New("not authorized: cannot determine client identity")
+	}
+	role, found, err := ci.GetAttributeValue("role")
+	if err != nil { return err }
+	if !found || role != "MINTER" { return errors.New("not authorized: role=MINTER required") }
+	return nil
+}
+
+func requireTransferAuth(ctx contractapi.TransactionContextInterface, from string) error {
+	ci := ctx.GetClientIdentity()
+	if ci == nil {
+		return errors.New("not authorized: cannot determine invoker identity")
+	}
+	inv, err := ci.GetID()
+	if err != nil { return errors.New("cannot determine invoker identity") }
+	if inv == from { return nil }
+	key, _ := ctx.GetStub().CreateCompositeKey("op", []string{from, inv})
+	b, err := ctx.GetStub().GetState(key)
+	if err != nil { return err }
+	if string(b) != "1" { return errors.New("not authorized: caller is not owner or approved operator") }
+	return nil
+}
+
+func txTS(ctx contractapi.TransactionContextInterface) int64 {
+	ts, err := ctx.GetStub().GetTxTimestamp()
+	if err != nil || ts == nil { return 0 }
+	return ts.GetSeconds()
 }
 
 func putAddBalance(ctx contractapi.TransactionContextInterface, tokenID, owner string, amt uint64) error {
