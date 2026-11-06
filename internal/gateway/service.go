@@ -37,36 +37,43 @@ func AuthToken(ctx context.Context) (string, error) {
 	return vals[0][len(prefix):], nil
 }
 
+// txResponse builds a TxResponse with the Fabric transaction ID populated so
+// clients can track the submitted transaction even when the chaincode returns
+// no result payload.
+func txResponse(res, txID string) *pb.TxResponse {
+	return &pb.TxResponse{TxId: txID, Result: res}
+}
+
 func (s *Service) Mint(ctx context.Context, r *pb.MintRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "Mint", r.TokenId, r.To, r.Uri, strconv.FormatUint(r.Amount, 10))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Mint", r.TokenId, r.To, r.Uri, strconv.FormatUint(r.Amount, 10))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) BatchMint(ctx context.Context, r *pb.BatchMintRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "BatchMint", join(r.Ids), join(r.Tos), joinUints(r.Amounts), join(r.Uris))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "BatchMint", join(r.Ids), join(r.Tos), joinUints(r.Amounts), join(r.Uris))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) Transfer(ctx context.Context, r *pb.TransferRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "Transfer", r.TokenId, r.From, r.To, strconv.FormatUint(r.Amount, 10))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Transfer", r.TokenId, r.From, r.To, strconv.FormatUint(r.Amount, 10))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) BatchTransfer(ctx context.Context, r *pb.BatchTransferRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "BatchTransfer", join(r.Ids), r.From, r.To, joinUints(r.Amounts))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "BatchTransfer", join(r.Ids), r.From, r.To, joinUints(r.Amounts))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) ApproveAll(ctx context.Context, r *pb.ApproveAllRequest) (*pb.TxResponse, error) {
@@ -74,44 +81,44 @@ func (s *Service) ApproveAll(ctx context.Context, r *pb.ApproveAllRequest) (*pb.
 	if r.Approved {
 		approved = "true"
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "SetApprovalForAll", r.Owner, r.Operator, approved)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "SetApprovalForAll", r.Owner, r.Operator, approved)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) ListForSale(ctx context.Context, r *pb.ListForSaleRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "ListForSale", r.TokenId, r.Seller, strconv.FormatUint(r.Amount, 10), strconv.FormatUint(r.Price, 10))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "ListForSale", r.TokenId, r.Seller, strconv.FormatUint(r.Amount, 10), strconv.FormatUint(r.Price, 10))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) ListForSalePrivate(ctx context.Context, r *pb.ListForSalePrivateRequest) (*pb.TxResponse, error) {
 	transient := map[string][]byte{"price": []byte(strconv.FormatUint(r.Price, 10))}
-	res, err := s.Fabric.SubmitWithTransient("playsmith-assets", "ListForSalePrivate", transient, r.TokenId, r.Seller, strconv.FormatUint(r.Amount, 10))
+	res, txID, err := s.Fabric.SubmitWithTransient("playsmith-assets", "ListForSalePrivate", transient, r.TokenId, r.Seller, strconv.FormatUint(r.Amount, 10))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) CancelListing(ctx context.Context, r *pb.CancelListingRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "CancelListing", r.TokenId, r.Seller, r.ListingId)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "CancelListing", r.TokenId, r.Seller, r.ListingId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) Buy(ctx context.Context, r *pb.BuyRequest) (*pb.TxResponse, error) {
-	res, err := s.Fabric.Submit("playsmith-assets", "Buy", r.TokenId, r.Seller, r.ListingId, r.Buyer, strconv.FormatUint(r.Amount, 10))
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Buy", r.TokenId, r.Seller, r.ListingId, r.Buyer, strconv.FormatUint(r.Amount, 10))
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	return &pb.TxResponse{Result: res}, nil
+	return txResponse(res, txID), nil
 }
 
 func (s *Service) BalanceOf(ctx context.Context, r *pb.BalanceOfRequest) (*pb.BalanceResponse, error) {

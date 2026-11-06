@@ -14,6 +14,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
@@ -90,8 +91,8 @@ func (s *Server) mint(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "Mint", req.TokenID, req.To, req.URI, itoa(req.Amount))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Mint", req.TokenID, req.To, req.URI, itoa(req.Amount))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
@@ -100,8 +101,8 @@ func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "Transfer", req.TokenID, req.From, req.To, itoa(req.Amount))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Transfer", req.TokenID, req.From, req.To, itoa(req.Amount))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
@@ -110,8 +111,8 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "ListForSale", req.TokenID, req.Seller, itoa(req.Amount), itoa(req.Price))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "ListForSale", req.TokenID, req.Seller, itoa(req.Amount), itoa(req.Price))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) buy(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +121,8 @@ func (s *Server) buy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "Buy", req.TokenID, req.Seller, req.ListingID, req.Buyer, itoa(req.Amount))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "Buy", req.TokenID, req.Seller, req.ListingID, req.Buyer, itoa(req.Amount))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) listPrivate(w http.ResponseWriter, r *http.Request) {
@@ -131,8 +132,8 @@ func (s *Server) listPrivate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	transient := map[string][]byte{"price": []byte(itoa(req.Price))}
-	res, err := s.Fabric.SubmitWithTransient("playsmith-assets", "ListForSalePrivate", transient, req.TokenID, req.Seller, itoa(req.Amount))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.SubmitWithTransient("playsmith-assets", "ListForSalePrivate", transient, req.TokenID, req.Seller, itoa(req.Amount))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
@@ -145,8 +146,8 @@ func (s *Server) cancel(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "CancelListing", body.TokenID, body.Seller, body.ListingID)
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "CancelListing", body.TokenID, body.Seller, body.ListingID)
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) approveAll(w http.ResponseWriter, r *http.Request) {
@@ -159,29 +160,29 @@ func (s *Server) approveAll(w http.ResponseWriter, r *http.Request) {
 	if req.Approved {
 		approved = "true"
 	}
-	res, err := s.Fabric.Submit("playsmith-assets", "SetApprovalForAll", req.Owner, req.Operator, approved)
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "SetApprovalForAll", req.Owner, req.Operator, approved)
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) uri(w http.ResponseWriter, r *http.Request) {
 	tokenID := strings.TrimPrefix(r.URL.Path, "/api/v1/assets/")
 	tokenID = strings.TrimSuffix(tokenID, "/uri")
 	res, err := s.Fabric.Evaluate("playsmith-assets", "URI", tokenID)
-	writeJSON(w, res, err)
+	writeJSON(w, res, "", err)
 }
 
 func (s *Server) exists(w http.ResponseWriter, r *http.Request) {
 	tokenID := strings.TrimPrefix(r.URL.Path, "/api/v1/assets/")
 	tokenID = strings.TrimSuffix(tokenID, "/exists")
 	res, err := s.Fabric.Evaluate("playsmith-assets", "Exists", tokenID)
-	writeJSON(w, res, err)
+	writeJSON(w, res, "", err)
 }
 
 func (s *Server) totalSupply(w http.ResponseWriter, r *http.Request) {
 	tokenID := strings.TrimPrefix(r.URL.Path, "/api/v1/assets/")
 	tokenID = strings.TrimSuffix(tokenID, "/totalSupply")
 	res, err := s.Fabric.Evaluate("playsmith-assets", "TotalSupply", tokenID)
-	writeJSON(w, res, err)
+	writeJSON(w, res, "", err)
 }
 
 func (s *Server) batchMint(w http.ResponseWriter, r *http.Request) {
@@ -194,8 +195,8 @@ func (s *Server) batchMint(w http.ResponseWriter, r *http.Request) {
 	tos, _ := json.Marshal(req.Tos)
 	amts, _ := json.Marshal(req.Amounts)
 	uris, _ := json.Marshal(req.URIs)
-	res, err := s.Fabric.Submit("playsmith-assets", "BatchMint", string(ids), string(tos), string(amts), string(uris))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "BatchMint", string(ids), string(tos), string(amts), string(uris))
+	writeJSON(w, res, txID, err)
 }
 
 func (s *Server) batchTransfer(w http.ResponseWriter, r *http.Request) {
@@ -206,18 +207,18 @@ func (s *Server) batchTransfer(w http.ResponseWriter, r *http.Request) {
 	}
 	ids, _ := json.Marshal(req.IDs)
 	amts, _ := json.Marshal(req.Amounts)
-	res, err := s.Fabric.Submit("playsmith-assets", "BatchTransfer", string(ids), req.From, req.To, string(amts))
-	writeJSON(w, res, err)
+	res, txID, err := s.Fabric.Submit("playsmith-assets", "BatchTransfer", string(ids), req.From, req.To, string(amts))
+	writeJSON(w, res, txID, err)
 }
 
-func writeJSON(w http.ResponseWriter, res string, err error) {
+func writeJSON(w http.ResponseWriter, res, txID string, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(500)
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": err.Error()})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"result": res})
+	_ = json.NewEncoder(w).Encode(map[string]any{"result": res, "txId": txID})
 }
 
 func itoa(v uint64) string { return fmt.Sprintf("%d", v) }
@@ -265,8 +266,16 @@ func main() {
 		}()
 	}
 	log.Printf("API listening on %s", addr)
-	if err := http.ListenAndServe(addr, s.router()); err != nil {
-		log.Fatal(err)
+	if certFile, keyFile := tlsPaths(); certFile != "" && keyFile != "" {
+		log.Printf("TLS enabled with cert=%s", certFile)
+		if err := http.ListenAndServeTLS(addr, certFile, keyFile, s.router()); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Printf("TLS not configured; serving plaintext (dev mode)")
+		if err := http.ListenAndServe(addr, s.router()); err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
@@ -305,7 +314,7 @@ func (s *Server) issueToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	writeJSON(w, token, nil)
+	writeJSON(w, token, "", nil)
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
@@ -333,7 +342,15 @@ func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager) error {
 	if err != nil {
 		return err
 	}
-	server := grpc.NewServer(grpc.ChainUnaryInterceptor(grpcAuthUnaryInterceptor(manager)))
+	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcAuthUnaryInterceptor(manager))}
+	if certFile, keyFile := tlsPaths(); certFile != "" && keyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+		if err != nil {
+			return err
+		}
+		opts = append(opts, grpc.Creds(creds))
+	}
+	server := grpc.NewServer(opts...)
 	pb.RegisterGatewayServer(server, &gateway.Service{Fabric: fabric})
 	log.Printf("gRPC listening on %s", addr)
 	return server.Serve(listener)
@@ -371,17 +388,17 @@ func (s *Server) assetRoute(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/v1/assets/"), "/")
 	if len(parts) == 2 && parts[1] == "uri" {
 		res, err := s.Fabric.Evaluate("playsmith-assets", "URI", parts[0])
-		writeJSON(w, res, err)
+		writeJSON(w, res, "", err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "exists" {
 		res, err := s.Fabric.Evaluate("playsmith-assets", "Exists", parts[0])
-		writeJSON(w, res, err)
+		writeJSON(w, res, "", err)
 		return
 	}
 	if len(parts) == 2 && parts[1] == "totalSupply" {
 		res, err := s.Fabric.Evaluate("playsmith-assets", "TotalSupply", parts[0])
-		writeJSON(w, res, err)
+		writeJSON(w, res, "", err)
 		return
 	}
 	if len(parts) == 3 && parts[1] == "balance" {
@@ -389,8 +406,14 @@ func (s *Server) assetRoute(w http.ResponseWriter, r *http.Request) {
 		tokenID := parts[0]
 		owner := parts[2]
 		res, err := s.Fabric.Evaluate("playsmith-assets", "BalanceOf", tokenID, owner)
-		writeJSON(w, res, err)
+		writeJSON(w, res, "", err)
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// tlsPaths returns the TLS certificate and key paths from the environment.
+// When either is empty, TLS is not configured and the server listens plaintext.
+func tlsPaths() (string, string) {
+	return os.Getenv("TLS_CERT_PATH"), os.Getenv("TLS_KEY_PATH")
 }

@@ -25,15 +25,15 @@ type fakeClient struct {
 	evalArgs   []string
 }
 
-func (f *fakeClient) Submit(contract, txn string, args ...string) (string, error) {
+func (f *fakeClient) Submit(contract, txn string, args ...string) (string, string, error) {
 	f.lastSubmit = txn
 	f.lastArgs = args
-	return "TX_OK", nil
+	return "TX_OK", "TXID-1", nil
 }
-func (f *fakeClient) SubmitWithTransient(contract, txn string, transient map[string][]byte, args ...string) (string, error) {
+func (f *fakeClient) SubmitWithTransient(contract, txn string, transient map[string][]byte, args ...string) (string, string, error) {
 	f.lastSubmit = txn
 	f.lastArgs = args
-	return "TX_OK", nil
+	return "TX_OK", "TXID-1", nil
 }
 func (f *fakeClient) Evaluate(contract, txn string, args ...string) (string, error) {
 	f.lastEval = txn
@@ -180,5 +180,15 @@ func TestGRPCAuthInterceptor(t *testing.T) {
 	bad := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer bad.token.here"))
 	if _, err := interceptor(bad, nil, info, handler); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("bad auth: code=%v", status.Code(err))
+	}
+}
+
+func TestTLSPaths(t *testing.T) {
+	t.Setenv("TLS_CERT_PATH", "/tmp/cert.pem")
+	t.Setenv("TLS_KEY_PATH", "/tmp/key.pem")
+
+	certFile, keyFile := tlsPaths()
+	if certFile != "/tmp/cert.pem" || keyFile != "/tmp/key.pem" {
+		t.Fatalf("cert=%q key=%q", certFile, keyFile)
 	}
 }

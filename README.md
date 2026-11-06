@@ -76,6 +76,7 @@ flowchart LR
 实现（`internal/auth`）
 - 平台托管（HS256）：`POST /api/v1/auth/token`（带 `X-Issue-Secret`）签发 JWT；REST 与 gRPC 均要求 `Authorization: Bearer <jwt>`
 - 自持证书：仍通过 Gateway 直连（`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`），JWT 未启用时 REST 保持开放（开发模式）
+- 传输安全：设 `TLS_CERT_PATH`/`TLS_KEY_PATH`（PEM 证书/私钥）时，REST 与 gRPC 均以 TLS 提供服务；未配置时回退明文（仅限开发）
 
 REST（示例）
 - `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`
@@ -87,7 +88,7 @@ REST（示例）
 - 批量接口：`POST /api/v1/batch` 支持同构/异构请求批量提交（降低往返与背书成本）
 
 gRPC（可选）
-- 同名服务定义，返回 TxID、区块号与事件回执；更低开销，适合高并发后台。
+- 同名服务定义，返回 TxID、区块号与事件回执；更低开销，适合高并发后台。交易响应带 `tx_id`（链上交易标识），即使链码无返回值也可追踪。
 - 启用：设 `GRPC_PORT`（并设 `JWT_SECRET`，否则拒绝启动）；proto 见 `proto/playsmith/v1/gateway.proto`
 
 Web UI

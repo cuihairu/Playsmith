@@ -75,22 +75,36 @@ func NewGatewayClient(ctx context.Context, cfg Config) (*GatewayClient, error) {
 	return &GatewayClient{gateway: gateway, network: network}, nil
 }
 
-func (c *GatewayClient) Submit(contract, txn string, args ...string) (string, error) {
+func (c *GatewayClient) Submit(contract, txn string, args ...string) (string, string, error) {
 	cc := c.network.GetContract(contract)
-	res, err := cc.SubmitTransaction(txn, args...)
+	res, commit, err := cc.SubmitAsync(txn, client.WithArguments(args...))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return string(res), nil
+	status, err := commit.Status()
+	if err != nil {
+		return "", "", err
+	}
+	if !status.Successful {
+		return "", "", newCommitError(status.TransactionID, status.Code)
+	}
+	return string(res), status.TransactionID, nil
 }
 
-func (c *GatewayClient) SubmitWithTransient(contract, txn string, transient map[string][]byte, args ...string) (string, error) {
+func (c *GatewayClient) SubmitWithTransient(contract, txn string, transient map[string][]byte, args ...string) (string, string, error) {
 	cc := c.network.GetContract(contract)
-	res, err := cc.Submit(txn, client.WithArguments(args...), client.WithTransient(transient))
+	res, commit, err := cc.SubmitAsync(txn, client.WithArguments(args...), client.WithTransient(transient))
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return string(res), nil
+	status, err := commit.Status()
+	if err != nil {
+		return "", "", err
+	}
+	if !status.Successful {
+		return "", "", newCommitError(status.TransactionID, status.Code)
+	}
+	return string(res), status.TransactionID, nil
 }
 
 func (c *GatewayClient) Evaluate(contract, txn string, args ...string) (string, error) {
