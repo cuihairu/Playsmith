@@ -67,7 +67,8 @@ API Mapping (Gateway)
   - POST `/api/v1/market/list-private` `{ tokenId, seller, amount, price }` (price sent via transient)
   - POST `/api/v1/market/cancel` `{ tokenId, seller, listingId }` (body struct uses lowercase json tags)
   - POST `/api/v1/market/buy` `{ tokenId, seller, listingId, buyer, amount }`
-- gRPC: **not implemented**; planned to mirror the REST surface (returns TxID, block number and event receipts).
+- gRPC: implemented (`internal/gateway` + `proto/playsmith/v1/gateway.proto`); requires `Authorization: Bearer <JWT>` metadata, issuer `playsmith`, audience `game-server`, HS256; mirrors the REST surface.
+- JWT: platform-hosted model uses `internal/auth` (HS256, `JWT_SECRET` ≥32B); `POST /api/v1/auth/token` issues with `X-Issue-Secret`; REST middleware requires bearer when `JWT_SECRET` set.
 
 Private Data Option
 - Enable collection `playsmithPvt` across trading orgs. Client sends `price` in transient map:

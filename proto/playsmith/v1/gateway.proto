@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package playsmith.v1;
+
+option go_package = "playsmith/internal/gatewaypb;gatewaypb";
+
+// Gateway is the gRPC surface mirroring the REST API.
+service Gateway {
+  rpc Mint(MintRequest) returns (TxResponse);
+  rpc BatchMint(BatchMintRequest) returns (TxResponse);
+  rpc Transfer(TransferRequest) returns (TxResponse);
+  rpc BatchTransfer(BatchTransferRequest) returns (TxResponse);
+  rpc ApproveAll(ApproveAllRequest) returns (TxResponse);
+  rpc ListForSale(ListForSaleRequest) returns (TxResponse);
+  rpc ListForSalePrivate(ListForSalePrivateRequest) returns (TxResponse);
+  rpc CancelListing(CancelListingRequest) returns (TxResponse);
+  rpc Buy(BuyRequest) returns (TxResponse);
+  rpc BalanceOf(BalanceOfRequest) returns (BalanceResponse);
+  rpc URI(URIRequest) returns (StringResponse);
+  rpc Exists(ExistsRequest) returns (BoolResponse);
+  rpc TotalSupply(TotalSupplyRequest) returns (StringResponse);
+}
+
+message MintRequest { string token_id = 1; string to = 2; string uri = 3; uint64 amount = 4; }
+message BatchMintRequest { repeated string ids = 1; repeated string tos = 2; repeated uint64 amounts = 3; repeated string uris = 4; }
+message TransferRequest { string token_id = 1; string from = 2; string to = 3; uint64 amount = 4; }
+message BatchTransferRequest { repeated string ids = 1; string from = 2; string to = 3; repeated uint64 amounts = 4; }
+message ApproveAllRequest { string owner = 1; string operator = 2; bool approved = 3; }
+message ListForSaleRequest { string token_id = 1; string seller = 2; uint64 amount = 3; uint64 price = 4; }
+message ListForSalePrivateRequest { string token_id = 1; string seller = 2; uint64 amount = 3; uint64 price = 4; }
+message CancelListingRequest { string token_id = 1; string seller = 2; string listing_id = 3; }
+message BuyRequest { string token_id = 1; string seller = 2; string listing_id = 3; string buyer = 4; uint64 amount = 5; }
+message BalanceOfRequest { string token_id = 1; string owner = 2; }
+message URIRequest { string token_id = 1; }
+message ExistsRequest { string token_id = 1; }
+message TotalSupplyRequest { string token_id = 1; }
+
+message TxResponse { string tx_id = 1; string result = 2; }
+message BalanceResponse { string balance = 1; }
+message StringResponse { string value = 1; }
+message BoolResponse { bool value = 1; }

@@ -73,6 +73,10 @@ flowchart LR
   - 平台托管：平台给游戏服签发 JWT（后台绑定 Fabric 身份）
   - 自持证书：游戏服使用 Fabric CA 颁发的 X.509 证书，通过 Gateway 直连
 
+实现（`internal/auth`）
+- 平台托管（HS256）：`POST /api/v1/auth/token`（带 `X-Issue-Secret`）签发 JWT；REST 与 gRPC 均要求 `Authorization: Bearer <jwt>`
+- 自持证书：仍通过 Gateway 直连（`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`），JWT 未启用时 REST 保持开放（开发模式）
+
 REST（示例）
 - `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`
 - `POST /api/v1/assets/transfer` body: `{tokenId, from, to, amount}`
@@ -84,6 +88,7 @@ REST（示例）
 
 gRPC（可选）
 - 同名服务定义，返回 TxID、区块号与事件回执；更低开销，适合高并发后台。
+- 启用：设 `GRPC_PORT`（并设 `JWT_SECRET`，否则拒绝启动）；proto 见 `proto/playsmith/v1/gateway.proto`
 
 Web UI
 - 浏览合约事件、资产余额、最近成交与卖单；查询来自 Postgres 的索引视图。
@@ -101,12 +106,13 @@ Web UI
    - `./network.sh deployCC -c playsmith -ccn playsmith-assets -ccl go -ccp ../../Playsmith/chaincode/playsmith-assets`
 3) 启动应用层
    - API：`cmd/api`（Go；设置 `FABRIC_GATEWAY_ENDPOINT` 等环境变量时使用真实 Fabric Gateway 客户端，否则回退 `NoopClient` 开发模式）
+   - 鉴权：`JWT_SECRET`（≥32 字节）启用 JWT；`POST /api/v1/auth/token` 需 `X-Issue-Secret` 与 `JWT_SECRET` 相同；gRPC 端口 `GRPC_PORT`
    - Indexer：`cmd/indexer`（订阅链码事件并 upsert 到 Postgres；需 `POSTGRES_DSN` 与 Fabric 环境变量）
    - Web UI：`web/`（当前为占位；查询页待实现）
 
 参考目录
 - `chaincode/playsmith-assets/`：链码（Go，已实现 Mint/Transfer/Batch/List/Buy/Cancel/approvals/supply/private price）
-- `cmd/api/`：API Gateway（REST + 批量；gRPC 与 JWT 鉴权待实现）
+- `cmd/api/`：API Gateway（REST + 批量；JWT 鉴权与 gRPC 已实现）
 - `cmd/indexer/`：事件订阅与入库（Fabric Gateway 事件 + Postgres）
 - `internal/sdk/`：Fabric SDK 封装（`Client` 接口 + `NoopClient` 开发占位 + `GatewayClient` 真实实现）
 - `web/`：前端（查询页，占位）
@@ -135,7 +141,7 @@ Fabric 层
 ## 路线图
 - [x] 链码 v0：Mint/Transfer/List/Buy + 事件（另含 BatchMint/BatchTransfer/approvals/supply/私有价格上架；鉴权校验已实现，见 SPEC.md）
 - [x] API Gateway（REST + 批量；Fabric 调用可切换真实 `GatewayClient`，默认 `NoopClient` 开发模式）
-- [ ] API Gateway：JWT 鉴权与 gRPC
+- [x] API Gateway：JWT 鉴权与 gRPC
 - [x] Indexer（订阅 Fabric 事件）+ Postgres schema
 - [x] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
 - [ ] Web UI（资产/卖单/成交）
