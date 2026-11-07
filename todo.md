@@ -38,3 +38,23 @@
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；未配置时回退明文（开发模式）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:45）。
   - 证据：`internal/sdk` `Client.Submit`/`SubmitWithTransient` 返回 `(result, txID, error)`；`GatewayClient` 用 `SubmitAsync`+`commit.Status()` 取 `TransactionID`；`internal/gateway/service.go` `txResponse` 填充 `TxId`（含无返回值交易如 `CancelListing`）；测试 `TestMint`（断言 `TxId`）/`TestCancelListingCarriesTxID` 通过。
+
+## 源码分层分析 2026-11-07
+
+### a) 抽象层清单
+
+- 接入层：装配 Fabric 后端、JWT/TLS、REST 与可选 gRPC 生命周期；代表 `cmd/api/main.go:226`。
+- 认证层：签发/校验平台托管 JWT 声明；代表 `internal/auth/jwt.go:20`。
+- Fabric 适配层：抽象提交/查询并把真实 Gateway 与 Noop 开发实现隔开；代表 `internal/sdk/fabric.go:7`。
+- 账本协议层：执行 ERC-1155 风格资产、市场、授权与事件协议；代表 `chaincode/playsmith-assets/main.go:14`。
+- 事件投影层：把链码 JSON 事件事务化派生为 Postgres 查询模型；代表 `cmd/indexer/main.go:85`。
+- 部署契约层：定义私有数据集合与成员/背书策略；代表 `deploy/collections.json:1`。
+
+### b) 超大文件候选（>1000 行）
+
+- [ ] LAY-001 [P1] 拆分 `internal/gatewaypb/gateway.pb.go`（1172 行）——生成物与源码提交混在同一目录，升级/维护时容易掩盖手写接口变更（`internal/gatewaypb/gateway.pb.go:1`）。
+
+### c) 目录/分类不合理处
+
+- `internal/gatewaypb/gateway.pb.go:1` 和 `internal/gatewaypb/gateway_grpc.pb.go:1` 均为 protobuf 生成文件；建议用生成规则目录（如 `gen/`）与构建禁改标记隔离，避免误作手写内部模块维护。
+- `internal/sdk/fabric.go:1` 与 `internal/sdk/gateway.go:1` 以文件名区分客户端抽象与实现，但同包内语义分组不明显；后续引入多后端时应将接口/错误与各实现分成稳定包边界。
