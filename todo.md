@@ -33,7 +33,7 @@
 
 ## 审核发现
 
-- [ ] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。  BLOCKED：需要真实机器/凭据（Fabric CA 为每个游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证。
+- [ ] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。  BLOCKED：需要真实机器/凭据（Fabric CA 为每个游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证。  跳过（巡检 2026-11-09）。
 - [x] 审核发现：HTTP 和 gRPC 均监听明文连接，直接部署时签发密钥及 bearer token 会在网络中明文传输，泄露后可伪造令牌或冒用调用者（cmd/api/main.go:336）。
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；未配置时回退明文（开发模式）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:45）。
@@ -59,3 +59,8 @@
 
 - `internal/gatewaypb/gen/gateway.pb.go:1` 和 `internal/gatewaypb/gen/gateway_grpc.pb.go:1` 均为 protobuf 生成文件；已按建议用生成规则目录 `gen/` 与构建禁改标记（`make proto` / `make proto-check`）隔离，避免误作手写内部模块维护（LAY-001 已解决）。
 - `internal/sdk/fabric.go:1` 与 `internal/sdk/gateway.go:1` 以文件名区分客户端抽象与实现，但同包内语义分组不明显；后续引入多后端时应将接口/错误与各实现分成稳定包边界。
+
+- [x] 审核发现：`build`、`test` 均未依赖 `proto-check` 且仓库没有自动执行该检查的配置，生成文件被手改或 proto 未重新生成时正常构建仍会成功，禁改守卫无法生效（Makefile:23）。
+  - 证据：`Makefile:29`/`Makefile:32`（`build: proto-check`、`test: proto-check`，守卫先于编译/测试）；负测试：手工篡改 `gen/gateway.pb.go` 后 `make test` 在守卫阶段即报 `ERROR: gateway.pb.go is out of date` 并失败（退出码 2），还原后通过；`make build` 同样先跑守卫；`go build ./...`/`go vet ./...`/`make proto-check`/`go test ./...` 全绿（commit `2e92e6c`，2026-11-09）。
+- [x] 审核发现：生成检查逐字比较含 protoc 版本号的生成文件，但 `proto-install` 只固定插件版本而未安装或校验 protoc 版本，使用其他版本 protoc 时即使协议未变也会错误报生成物过期（Makefile:40）。
+  - 证据：`Makefile:22`（`PROTOC_VERSION := 3.21.12` 固定）、`Makefile:39-49`（`proto-doctor` 校验 protoc 存在且版本精确匹配）；`proto`/`proto-check`/`proto-install` 均先过 `proto-doctor`；负测试：`make proto-check PROTOC_VERSION=9.9.9` 报 `ERROR: protoc version mismatch: found 3.21.12, need 9.9.9`（不再误报"生成物过期"）、`PROTOC=/nonexistent` 报 not found、`make proto PROTOC_VERSION=9.9.9` 拒绝再生成；全绿（commit `2e92e6c`，2026-11-09）。
