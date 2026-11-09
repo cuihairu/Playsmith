@@ -1079,7 +1079,7 @@ const file_proto_playsmith_v1_gateway_proto_rawDesc = "" +
 	"\tBalanceOf\x12\x1e.playsmith.v1.BalanceOfRequest\x1a\x1d.playsmith.v1.BalanceResponse\x12=\n" +
 	"\x03URI\x12\x18.playsmith.v1.URIRequest\x1a\x1c.playsmith.v1.StringResponse\x12A\n" +
 	"\x06Exists\x12\x1b.playsmith.v1.ExistsRequest\x1a\x1a.playsmith.v1.BoolResponse\x12M\n" +
-	"\vTotalSupply\x12 .playsmith.v1.TotalSupplyRequest\x1a\x1c.playsmith.v1.StringResponseB(Z&playsmith/internal/gatewaypb;gatewaypbb\x06proto3"
+	"\vTotalSupply\x12 .playsmith.v1.TotalSupplyRequest\x1a\x1c.playsmith.v1.StringResponseB,Z*playsmith/internal/gatewaypb/gen;gatewaypbb\x06proto3"
 
 var (
 	file_proto_playsmith_v1_gateway_proto_rawDescOnce sync.Once

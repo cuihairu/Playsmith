@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	pb "playsmith/internal/gatewaypb"
+	pb "playsmith/internal/gatewaypb/gen"
 	"playsmith/internal/sdk"
 )
 

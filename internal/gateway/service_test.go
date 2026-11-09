@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	pb "playsmith/internal/gatewaypb"
+	pb "playsmith/internal/gatewaypb/gen"
 )
 
 type fake struct {

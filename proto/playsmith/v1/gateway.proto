@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package playsmith.v1;
 
-option go_package = "playsmith/internal/gatewaypb;gatewaypb";
+option go_package = "playsmith/internal/gatewaypb/gen;gatewaypb";
 
 // Gateway is the gRPC surface mirroring the REST API.
 service Gateway {

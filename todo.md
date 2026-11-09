@@ -52,9 +52,10 @@
 
 ### b) 超大文件候选（>1000 行）
 
-- [ ] LAY-001 [P1] 拆分 `internal/gatewaypb/gateway.pb.go`（1172 行）——生成物与源码提交混在同一目录，升级/维护时容易掩盖手写接口变更（`internal/gatewaypb/gateway.pb.go:1`）。
+- [x] LAY-001 [P1] 拆分 `internal/gatewaypb/gateway.pb.go`（1172 行）——生成物与源码提交混在同一目录，升级/维护时容易掩盖手写接口变更（`internal/gatewaypb/gateway.pb.go:1`）。
+  - 证据：生成物迁至独立生成目录 `internal/gatewaypb/gen/`（`gen/gateway.pb.go`、`gen/gateway_grpc.pb.go`，均带 `DO NOT EDIT` 头，git 识别为 rename）；`Makefile` 提供 `proto`（再生成）与 `proto-check`（禁改守卫：生成物漂移即 `ERROR: ... out of date` 失败，负测试手工篡改 `gateway.pb.go` 确触发，改回后通过）；`gen/doc.go` 包注释 + `gen/README.md` 标记；proto `go_package` 更新为 `playsmith/internal/gatewaypb/gen;gatewaypb`；`make proto-check` / `go build ./...` / `go vet ./...` / `go test ./...` 全部通过（2026-11-09）。
 
 ### c) 目录/分类不合理处
 
-- `internal/gatewaypb/gateway.pb.go:1` 和 `internal/gatewaypb/gateway_grpc.pb.go:1` 均为 protobuf 生成文件；建议用生成规则目录（如 `gen/`）与构建禁改标记隔离，避免误作手写内部模块维护。
+- `internal/gatewaypb/gen/gateway.pb.go:1` 和 `internal/gatewaypb/gen/gateway_grpc.pb.go:1` 均为 protobuf 生成文件；已按建议用生成规则目录 `gen/` 与构建禁改标记（`make proto` / `make proto-check`）隔离，避免误作手写内部模块维护（LAY-001 已解决）。
 - `internal/sdk/fabric.go:1` 与 `internal/sdk/gateway.go:1` 以文件名区分客户端抽象与实现，但同包内语义分组不明显；后续引入多后端时应将接口/错误与各实现分成稳定包边界。

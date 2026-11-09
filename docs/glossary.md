@@ -6,7 +6,7 @@ This glossary uses responsibility layers rather than directory names. References
 |---|---|---|---|
 | 接入生命周期 | Access Lifecycle | One process that selects the Fabric client, JWT/TLS options, and REST/gRPC listeners, then serves until process exit. | `cmd/api/main.go:226`, `cmd/api/main.go:258`, `cmd/api/main.go:282` |
 | REST 网关 | REST Gateway | The HTTP face that maps JSON requests to Fabric submissions/evaluations and exposes transaction IDs. | `cmd/api/main.go:282`, `cmd/api/main.go:88`, `cmd/api/main.go:214` |
-| gRPC 网关 | gRPC Gateway | A generated protobuf contract plus service methods that mirror the REST surface. | `proto/playsmith/v1/gateway.proto:8`, `internal/gateway/service.go:17`, `internal/gatewaypb/gateway.pb.go:1` |
+| gRPC 网关 | gRPC Gateway | A generated protobuf contract plus service methods that mirror the REST surface. | `proto/playsmith/v1/gateway.proto:8`, `internal/gateway/service.go:17`, `internal/gatewaypb/gen/gateway.pb.go:1` |
 | 传输鉴权 | Transport Authentication | The JWT issuing middleware and bearer checks shared conceptually by REST and gRPC; issuance uses the same configured secret. | `internal/auth/jwt.go:20`, `cmd/api/main.go:298`, `cmd/api/main.go:320`, `cmd/api/main.go:359` |
 | Fabric 适配 | Fabric Adapter | The `sdk.Client` boundary that keeps transport handlers independent of real Fabric Gateway or development no-op behavior. | `internal/sdk/fabric.go:7`, `internal/sdk/gateway.go:26`, `internal/sdk/fabric.go:13` |
 | 交易执行 | Transaction Execution | Fabric Gateway submission over mTLS/gRPC, commit-status checking, transaction-ID extraction, and read-only evaluation. | `internal/sdk/gateway.go:33`, `internal/sdk/gateway.go:78`, `internal/sdk/gateway.go:110` |

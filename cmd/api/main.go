@@ -20,7 +20,7 @@ import (
 
 	"playsmith/internal/auth"
 	"playsmith/internal/gateway"
-	pb "playsmith/internal/gatewaypb"
+	pb "playsmith/internal/gatewaypb/gen"
 	"playsmith/internal/sdk"
 )
 

@@ -194,7 +194,7 @@ func (c *gatewayClient) TotalSupply(ctx context.Context, in *TotalSupplyRequest,
 }
 
 // GatewayServer is the server API for Gateway service.
-// All implementations should embed UnimplementedGatewayServer
+// All implementations must embed UnimplementedGatewayServer
 // for forward compatibility.
 //
 // Gateway is the gRPC surface mirroring the REST API.
@@ -212,9 +212,10 @@ type GatewayServer interface {
 	URI(context.Context, *URIRequest) (*StringResponse, error)
 	Exists(context.Context, *ExistsRequest) (*BoolResponse, error)
 	TotalSupply(context.Context, *TotalSupplyRequest) (*StringResponse, error)
+	mustEmbedUnimplementedGatewayServer()
 }
 
-// UnimplementedGatewayServer should be embedded to have
+// UnimplementedGatewayServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
@@ -260,7 +261,8 @@ func (UnimplementedGatewayServer) Exists(context.Context, *ExistsRequest) (*Bool
 func (UnimplementedGatewayServer) TotalSupply(context.Context, *TotalSupplyRequest) (*StringResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method TotalSupply not implemented")
 }
-func (UnimplementedGatewayServer) testEmbeddedByValue() {}
+func (UnimplementedGatewayServer) mustEmbedUnimplementedGatewayServer() {}
+func (UnimplementedGatewayServer) testEmbeddedByValue()                 {}
 
 // UnsafeGatewayServer may be embedded to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to GatewayServer will
