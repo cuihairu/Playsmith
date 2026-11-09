@@ -329,12 +329,56 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "missing bearer token", http.StatusUnauthorized)
 			return
 		}
-		if _, err := s.JWTManager.Validate(authz[len(prefix):]); err != nil {
+		claims, err := s.JWTManager.Validate(authz[len(prefix):])
+		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		// Bind the JWT identity to per-operation authorization: every call
+		// requires a non-empty mspId/role, and role-gated operations (Mint,
+		// BatchMint) require role=MINTER.
+		if err := claims.Authorize(gatewayOperation(r.URL.Path)); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// gatewayOperation maps a REST path to its gateway operation name for
+// Claims.Authorize. Query routes return "" (identity presence is still
+// required by Authorize).
+func gatewayOperation(path string) string {
+	switch path {
+	case "/api/v1/assets/mint":
+		return "Mint"
+	case "/api/v1/assets/batchMint":
+		return "BatchMint"
+	case "/api/v1/assets/transfer":
+		return "Transfer"
+	case "/api/v1/assets/batchTransfer":
+		return "BatchTransfer"
+	case "/api/v1/assets/approveAll":
+		return "ApproveAll"
+	case "/api/v1/market/list":
+		return "ListForSale"
+	case "/api/v1/market/list-private":
+		return "ListForSalePrivate"
+	case "/api/v1/market/cancel":
+		return "CancelListing"
+	case "/api/v1/market/buy":
+		return "Buy"
+	}
+	return ""
+}
+
+// operationFromFullMethod extracts the operation name from a gRPC full method
+// (e.g. /playsmith.v1.Gateway/Mint -> "Mint").
+func operationFromFullMethod(fullMethod string) string {
+	if i := strings.LastIndex(fullMethod, "/"); i >= 0 {
+		return fullMethod[i+1:]
+	}
+	return fullMethod
 }
 
 func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager) error {
@@ -371,8 +415,11 @@ func grpcAuthUnaryInterceptor(manager *auth.Manager) grpc.UnaryServerInterceptor
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid token")
 		}
-		if claims.Role == "" || claims.MSPID == "" {
-			return nil, status.Error(codes.PermissionDenied, "missing Fabric identity")
+		// Bind the JWT identity to per-operation authorization: every call
+		// requires a non-empty mspId/role, and role-gated operations (Mint,
+		// BatchMint) require role=MINTER.
+		if err := claims.Authorize(operationFromFullMethod(info.FullMethod)); err != nil {
+			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 		return handler(ctx, req)
 	}

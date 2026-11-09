@@ -183,6 +183,69 @@ func TestGRPCAuthInterceptor(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewareDeniesNonMinterMint(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "Org1MSP", "PLAYER")
+	s := &Server{JWTManager: manager, Fabric: &fakeClient{}}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/assets/mint", strings.NewReader(`{"tokenId":"t1","to":"a","uri":"u","amount":1}`))
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthMiddlewareAllowsMinterMint(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "Org1MSP", "MINTER")
+	s := &Server{JWTManager: manager, Fabric: &fakeClient{}}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/assets/mint", strings.NewReader(`{"tokenId":"t1","to":"a","uri":"u","amount":1}`))
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthMiddlewareRequiresIdentity(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "", "") // token without mspId/role
+	s := &Server{JWTManager: manager, Fabric: &fakeClient{}}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/assets/tok1/balance/owner1", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestGRPCAuthInterceptorDeniesNonMinterMint(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "Org1MSP", "PLAYER")
+	interceptor := grpcAuthUnaryInterceptor(manager)
+	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
+	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/Mint"}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
+	if _, err := interceptor(ctx, nil, info, handler); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("code=%v, want PermissionDenied", status.Code(err))
+	}
+}
+
+func TestGRPCAuthInterceptorQueryNeedsIdentity(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "", "") // no mspId/role
+	interceptor := grpcAuthUnaryInterceptor(manager)
+	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
+	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/BalanceOf"}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
+	if _, err := interceptor(ctx, nil, info, handler); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("code=%v, want PermissionDenied", status.Code(err))
+	}
+}
+
 func TestTLSPaths(t *testing.T) {
 	t.Setenv("TLS_CERT_PATH", "/tmp/cert.pem")
 	t.Setenv("TLS_KEY_PATH", "/tmp/key.pem")

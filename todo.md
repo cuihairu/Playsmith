@@ -33,7 +33,9 @@
 
 ## 审核发现
 
-- [ ] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。  BLOCKED：需要真实机器/凭据（Fabric CA 为每个游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证。  跳过（巡检 2026-11-09）。
+- [x] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。
+  - 证据（按操作授权臂已修）：`internal/auth/authorize.go` `Claims.Authorize`（所有已鉴权调用要求非空 mspId+role；`Mint`/`BatchMint` 要求 `role=MINTER`，对齐 SPEC Authorization 与链码 `requireMinter`）；`cmd/api/main.go` REST `authMiddleware` 与 gRPC `grpcAuthUnaryInterceptor` 均调用 `Authorize`（经 `gatewayOperation`/`operationFromFullMethod` 映射操作）；测试 `TestAuthMiddlewareDeniesNonMinterMint`（PLAYER→Mint→403）、`TestAuthMiddlewareAllowsMinterMint`（MINTER→Mint→200）、`TestAuthMiddlewareRequiresIdentity`（空 mspId/role→403）、`TestGRPCAuthInterceptorDeniesNonMinterMint`（PLAYER→Mint→PermissionDenied）、`TestGRPCAuthInterceptorQueryNeedsIdentity`、`TestAuthorizeMinterGate` 等通过（`go test ./...`，2026-11-09）。
+  - 绑定每游戏服 Fabric 身份臂仍 BLOCKED：需真实机器/凭据（Fabric CA 为每游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证，未修。
 - [x] 审核发现：HTTP 和 gRPC 均监听明文连接，直接部署时签发密钥及 bearer token 会在网络中明文传输，泄露后可伪造令牌或冒用调用者（cmd/api/main.go:336）。
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；未配置时回退明文（开发模式）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:45）。
