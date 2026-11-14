@@ -155,7 +155,7 @@ Fabric 层
 - [x] Indexer（订阅 Fabric 事件）+ Postgres schema
 - [x] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
 - [ ] Web UI（资产/卖单/成交）
-- [ ] 压测脚本（Caliper/自研）与调优模板
+- [ ] 压测脚本（Caliper/自建）与调优模板
 - [x] `playsmithPvt` 集合的 collections 配置文件（`deploy/collections.json`）
 - [ ] SBE（资产级背书策略）样例
 
