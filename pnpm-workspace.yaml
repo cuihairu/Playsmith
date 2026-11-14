@@ -1,0 +1,10 @@
+# Minimal pnpm workspace so the docs site installs from the repository root and
+# can be built with `pnpm --filter @playsmith/docs build`.
+packages:
+  - docs
+
+# Deny esbuild's postinstall explicitly. The binary it would fetch is already
+# delivered as an optional platform dependency, so the docs build needs no
+# install script — and a undecided entry would fail `pnpm install`.
+allowBuilds:
+  esbuild: false

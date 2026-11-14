@@ -2,13 +2,15 @@
 
 A permissioned, high-performance blockchain stack for game asset minting, trading, and querying, built on Hyperledger Fabric.
 
-Goals
-- 游戏资产上链：可替代/半同质/非同质（ERC-1155 风格）资产铸造、转移、上架、成交
-- Web 页面查询：提供浏览/检索与资产详情页，事件驱动的索引
-- 游戏友好接口：面向游戏服的 REST/gRPC SDK 与批量接口
-- 高性能：秒级终局、百到千级 TPS 的稳态吞吐；按键空间设计避免热点冲突
+Chinese version: [README.zh.md](README.zh.md)
 
-## 架构（Mermaid 图）
+Goals
+- On-ledger game assets: fungible / semi-fungible / non-fungible (ERC-1155 style) minting, transfer, listing and trading
+- Web browsing: browse/search pages and asset detail pages, event-driven indexing
+- Game-friendly interfaces: REST/gRPC SDK plus batch endpoints for game servers
+- Performance: second-level finality and a few hundred to a thousand TPS in steady state; a key space designed to avoid hotspot conflicts
+
+## Architecture (Mermaid)
 ```mermaid
 flowchart LR
   subgraph Clients
@@ -45,117 +47,117 @@ flowchart LR
   UI2[Admin Explorer] -. optional .-> API
 ```
 
-说明
-- API Gateway：对外暴露 REST/gRPC；内部通过 Fabric Gateway SDK 调用链码；统一鉴权、限流与批量。
-- Indexer：订阅链码事件，生成可检索视图存入 Postgres（供 Web/UI 与统计用）；避免对账本做昂贵富查询。
-- Fabric：2 组织 1 通道；Raft/SmartBFT 排序；Peer 使用 LevelDB（高吞吐）；敏感字段（价格/对手/履约证据）可放私有数据集合。
+Notes
+- API Gateway: exposes REST/gRPC externally; calls chaincode internally through the Fabric Gateway SDK; centralizes authentication, rate limiting and batching.
+- Indexer: subscribes to chaincode events and builds browsable views in Postgres (for Web/UI and statistics); avoids expensive rich queries against the ledger.
+- Fabric: 2 organizations, 1 channel; Raft/SmartBFT ordering; peers on LevelDB (high throughput); sensitive fields (price, counterparty, settlement evidence) can live in a private data collection.
 
-## 账本与链码设计（1155 风格）
-键空间（复合键，避免热点）
-- `bal~tokenId~owner -> uint64`：余额
-- `meta~tokenId -> {uri, creator, supplyCap...}`：元数据
-- `op~owner~operator -> bool`：授权（可选）
-- `ask~tokenId~seller~listingId -> {amount, price, ts}`：卖单（价格可改为私有数据）
+## Ledger and chaincode design (1155 style)
+Key space (composite keys, to avoid hotspots)
+- `bal~tokenId~owner -> uint64`: balance
+- `meta~tokenId -> {uri, creator, supplyCap...}`: metadata
+- `op~owner~operator -> bool`: approval (optional)
+- `ask~tokenId~seller~listingId -> {amount, price, ts}`: listing (price can move to private data)
 
-主要交易
-- `Mint(tokenId, to, uri, amount)`：`role=MINTER` 才能铸造；首次写入 `meta`
-- `Transfer(tokenId, from, to, amount)`：检查授权与余额，原子增减 `bal`
-- `ListForSale(tokenId, seller, amount, price)`：写入 `ask`；生产可用私有集合存价格
-- `Buy(tokenId, seller, listingId, buyer, amount)`：原子转移并删除 `ask`
+Main transactions
+- `Mint(tokenId, to, uri, amount)`: only `role=MINTER` may mint; writes `meta` on first mint
+- `Transfer(tokenId, from, to, amount)`: checks approval and balance, mutates `bal` atomically
+- `ListForSale(tokenId, seller, amount, price)`: writes `ask`; production can keep the price in a private collection
+- `Buy(tokenId, seller, listingId, buyer, amount)`: transfers atomically and deletes `ask`
 
-并发与性能
-- 交易只触及极少量键（卖家/买家余额 + 卖单），降低 MVCC 冲突概率
-- 避免全局计数器；`listingId` 使用 TxID 或服务端生成的 UUID
+Concurrency and performance
+- A transaction touches very few keys (seller/buyer balance + the listing), keeping MVCC conflict probability low
+- No global counters; `listingId` uses the TxID or a server-generated UUID
 
-## API 设计（对游戏友好）
-鉴权
-- 支持两种模型：
-  - 平台托管：平台给游戏服签发 JWT（后台绑定 Fabric 身份）
-  - 自持证书：游戏服使用 Fabric CA 颁发的 X.509 证书，通过 Gateway 直连
+## API design (game friendly)
+Authentication
+- Two models are supported:
+  - Platform-hosted: the platform issues JWTs to game servers (bound to Fabric identity in the backend)
+  - Self-held certificate: the game server uses an X.509 certificate from Fabric CA and connects through the Gateway
 
-实现（`internal/auth`）
-- 平台托管（HS256）：`POST /api/v1/auth/token`（带 `X-Issue-Secret`）签发 JWT；REST 与 gRPC 均要求 `Authorization: Bearer <jwt>`
-- 按操作授权：所有已鉴权调用要求 JWT 携带非空 `mspId` 与 `role`；`Mint`/`BatchMint` 要求 `role=MINTER`（网关层把关，与链码 `requireMinter` 同规则；`internal/auth/authorize.go`）
-- 网关 Fabric 身份：`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`/`FABRIC_MSP_ID` 配置网关进程提交交易所用的 X.509 身份（当前所有调用共用同一身份，按 subject 的身份隔离待做，见 todo.md）；JWT 未启用时 REST 保持开放（开发模式）
-- 传输安全：设 `TLS_CERT_PATH`/`TLS_KEY_PATH`（PEM 证书/私钥）时，REST 与 gRPC 均以 TLS 提供服务；未配置时回退明文（仅限开发）
+Implementation (`internal/auth`)
+- Platform-hosted (HS256): `POST /api/v1/auth/token` (with `X-Issue-Secret`) issues a JWT; both REST and gRPC require `Authorization: Bearer <jwt>`
+- Per-operation authorization: every authenticated call must carry a non-empty `mspId` and `role` in the JWT; `Mint`/`BatchMint` additionally require `role=MINTER` (gateway-level gate, same rule as the chaincode `requireMinter`; `internal/auth/authorize.go`)
+- Gateway Fabric identity: `FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`/`FABRIC_MSP_ID` configure the X.509 identity the gateway process submits with (every caller currently shares that one identity; per-subject identity isolation is pending, see `todo.md`); REST stays open when JWT is disabled (dev mode)
+- Transport security: with `TLS_CERT_PATH`/`TLS_KEY_PATH` (PEM cert/key) set, REST and gRPC are both served over TLS; when unset both fall back to plaintext (dev only)
 
-REST（已实现端点；字段详见 SPEC.md API Mapping）
-- `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`（JWT 需 `role=MINTER`）
-- `POST /api/v1/assets/batchMint` body: `{ids, tos, amounts, uris}`（JWT 需 `role=MINTER`）
+REST (implemented endpoints; fields in `docs/SPEC.md` API Mapping)
+- `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}` (JWT needs `role=MINTER`)
+- `POST /api/v1/assets/batchMint` body: `{ids, tos, amounts, uris}` (JWT needs `role=MINTER`)
 - `POST /api/v1/assets/transfer` body: `{tokenId, from, to, amount}`
 - `POST /api/v1/assets/batchTransfer` body: `{ids, from, to, amounts}`
 - `POST /api/v1/assets/approveAll` body: `{owner, operator, approved}`
-- `GET /api/v1/assets/:tokenId/balance/:owner`、`/:tokenId/uri`、`/:tokenId/exists`、`/:tokenId/totalSupply`
+- `GET /api/v1/assets/:tokenId/balance/:owner`, `/:tokenId/uri`, `/:tokenId/exists`, `/:tokenId/totalSupply`
 - `POST /api/v1/market/list` body: `{tokenId, seller, amount, price}`
-- `POST /api/v1/market/list-private` body: `{tokenId, seller, amount, price}`（price 经 transient 传递）
+- `POST /api/v1/market/list-private` body: `{tokenId, seller, amount, price}` (price sent via transient)
 - `POST /api/v1/market/cancel` body: `{tokenId, seller, listingId}`
 - `POST /api/v1/market/buy` body: `{tokenId, seller, listingId, buyer, amount}`
-- 卖单/成交检索查询（listings）为规划项：基于 Indexer 的 Postgres 投影，查询 API 与 Web UI 一并待实现
+- Listing/trade browsing queries are planned: they would sit over the indexer's Postgres projection, together with the query API and the Web UI
 
-gRPC（可选）
-- 同名服务定义，返回交易结果与 `tx_id`（链上交易标识，即使链码无返回值也可追踪）；更低开销，适合高并发后台。区块号与事件回执为规划项，当前 proto 响应仅含 `tx_id`/`result`。
-- 启用：设 `GRPC_PORT`（并设 `JWT_SECRET`，否则拒绝启动）；proto 见 `proto/playsmith/v1/gateway.proto`
+gRPC (optional)
+- Same service definition, returning the transaction result and `tx_id` (the on-ledger transaction identifier, available even when the chaincode returns no value); lower overhead, suited to high-concurrency backends. Block numbers and event receipts are planned; the current proto response carries only `tx_id`/`result`.
+- Enable by setting `GRPC_PORT` (and `JWT_SECRET`, otherwise it refuses to start); proto in `proto/playsmith/v1/gateway.proto`
 
 Web UI
-- 浏览合约事件、资产余额、最近成交与卖单；查询来自 Postgres 的索引视图。
+- Browses contract events, asset balances, recent trades and listings; queries read the indexed views in Postgres.
 
-## 快速开始（开发环境）
-前置
-- Docker & Docker Compose、Node.js 或 Go、Fabric v2.5+ 二进制
-- 克隆 `hyperledger/fabric-samples`（网络脚本）
+## Quick start (development)
+Prerequisites
+- Docker & Docker Compose, Node.js or Go, Fabric v2.5+ binaries
+- Clone `hyperledger/fabric-samples` (network scripts)
 
-步骤（使用 test-network）
-1) 启动 2 组织 1 通道
+Steps (using test-network)
+1) Bring up 2 organizations and 1 channel
    - `cd fabric-samples/test-network`
-   - `./network.sh up createChannel -c playsmith -ca`  # 开发用；生产建议 LevelDB（默认）
-2) 部署链码
+   - `./network.sh up createChannel -c playsmith -ca`  # development; LevelDB (the default) is recommended for production
+2) Deploy the chaincode
    - `./network.sh deployCC -c playsmith -ccn playsmith-assets -ccl go -ccp ../../Playsmith/chaincode/playsmith-assets`
-3) 启动应用层
-   - API：`cmd/api`（Go；设置 `FABRIC_GATEWAY_ENDPOINT` 等环境变量时使用真实 Fabric Gateway 客户端，否则回退 `NoopClient` 开发模式）
-   - 鉴权：`JWT_SECRET`（≥32 字节）启用 JWT；`POST /api/v1/auth/token` 需 `X-Issue-Secret` 与 `JWT_SECRET` 相同；gRPC 端口 `GRPC_PORT`
-   - Indexer：`cmd/indexer`（订阅链码事件并 upsert 到 Postgres；需 `POSTGRES_DSN` 与 Fabric 环境变量）
-   - Web UI：`web/`（当前为占位；查询页待实现）
-4) 构建与测试
-   - `make build` / `make test`（均先跑 `proto-check` 生成物禁改守卫）；再生成 `make proto`（protoc 版本钉在 Makefile，`make proto-install` 安装插件并校验工具链）
+3) Start the application layer
+   - API: `cmd/api` (Go; uses the real Fabric Gateway client when `FABRIC_GATEWAY_ENDPOINT` and related variables are set, and falls back to `NoopClient` dev mode otherwise)
+   - Auth: `JWT_SECRET` (≥32 bytes) enables JWT; `POST /api/v1/auth/token` needs `X-Issue-Secret` equal to `JWT_SECRET`; gRPC port via `GRPC_PORT`
+   - Indexer: `cmd/indexer` (subscribes to chaincode events and upserts into Postgres; needs `POSTGRES_DSN` and the Fabric variables)
+   - Web UI: `web/` (placeholder for now; query pages pending)
+4) Build and test
+   - `make build` / `make test` (both run the `proto-check` generated-code guard first); regenerate with `make proto` (the protoc version is pinned in the Makefile, and `make proto-install` installs the plugins and verifies the toolchain)
 
-参考目录
-- `chaincode/playsmith-assets/`：链码（Go，已实现 Mint/Transfer/Batch/List/Buy/Cancel/approvals/supply/private price）
-- `cmd/api/`：API Gateway（REST + 批量；JWT 鉴权与 gRPC 已实现）
-- `cmd/indexer/`：事件订阅与入库（Fabric Gateway 事件 + Postgres）
-- `internal/sdk/`：Fabric SDK 封装（`Client` 接口 + `NoopClient` 开发占位 + `GatewayClient` 真实实现）
-- `web/`：前端（查询页，占位）
-- `deploy/`：本地一键脚本与 Docker 组合
+Repository layout
+- `chaincode/playsmith-assets/`: chaincode (Go; implements Mint/Transfer/Batch/List/Buy/Cancel/approvals/supply/private price)
+- `cmd/api/`: API Gateway (REST + batch; JWT auth and gRPC implemented)
+- `cmd/indexer/`: event subscription and persistence (Fabric Gateway events + Postgres)
+- `internal/sdk/`: Fabric SDK wrapper (`Client` interface + `NoopClient` dev placeholder + `GatewayClient` real implementation)
+- `web/`: frontend (query pages, placeholder)
+- `deploy/`: local one-shot scripts and Docker compose
 
-## 性能与调优
-Fabric 层
-- Orderer：`BatchTimeout=0.5-1s`、`MaxMessageCount=200-500`、`AbsoluteMaxBytes/PreferredMaxBytes` 视网络带宽调整
-- Peer：并行背书开启；GOMAXPROCS 与连接池调大；LevelDB > CouchDB（若无需富查询）
-- 链码：避免热点键；读写集最小化；尽量使用复合键前缀扫描代替富查询
+## Performance and tuning
+Fabric layer
+- Orderer: `BatchTimeout=0.5-1s`, `MaxMessageCount=200-500`, `AbsoluteMaxBytes/PreferredMaxBytes` tuned to network bandwidth
+- Peer: parallel endorsement on; raise GOMAXPROCS and the connection pool; LevelDB > CouchDB (when rich queries are not needed)
+- Chaincode: avoid hot keys; minimize the read/write set; prefer composite-key prefix scans over rich queries
 
-应用层
-- 批量提交（客户端/网关聚合）与幂等重试（以 TxID 去重）
-- Indexer 异步化重建视图，Web 查询不触发账本昂贵扫描
-- gRPC 低延迟管道替代 REST（可选）
+Application layer
+- Batched submission (client/gateway aggregation) and idempotent retries (deduplicated by TxID)
+- The indexer rebuilds views asynchronously so Web queries never trigger expensive ledger scans
+- A low-latency gRPC pipeline instead of REST (optional)
 
-目标（保守）
-- 简单转移/成交路径：200-800 TPS（2-4 节点，1s 批量切块，LevelDB）
-- 秒级终局：端到端常见 0.8-2.5s（视批量与背书）
+Targets (conservative)
+- Simple transfer/trade path: 200-800 TPS (2-4 nodes, 1s batching, LevelDB)
+- Second-level finality: 0.8-2.5s end to end is typical (depending on batching and endorsement)
 
-## 权限与隐私
-- 组织身份（MSP/CA）；铸造检查证书属性 `role=MINTER`；operator 授权走链上 `op~owner~operator` 状态，不使用证书属性
-- 背书策略：`AND('Org1.peer','Org2.peer')`；资产级 SBE 可进一步加严
-- 私有数据集合：价格、对手、结算明细仅 Org1/Org2 可见；链上存哈希校验
+## Permissions and privacy
+- Organization identity (MSP/CA); minting checks the certificate attribute `role=MINTER`; operator approval uses ledger state `op~owner~operator`, not a certificate attribute
+- Endorsement policy: `AND('Org1.peer','Org2.peer')`; asset-level SBE can tighten it further
+- Private data collection: prices, counterparties and settlement details are visible only to Org1/Org2; the ledger stores a hash for verification
 
-## 路线图
-- [x] 链码 v0：Mint/Transfer/List/Buy + 事件（另含 BatchMint/BatchTransfer/approvals/supply/私有价格上架；鉴权校验已实现，见 SPEC.md）
-- [x] API Gateway（REST + 批量；Fabric 调用可切换真实 `GatewayClient`，默认 `NoopClient` 开发模式）
-- [x] API Gateway：JWT 鉴权与 gRPC
-- [x] Indexer（订阅 Fabric 事件）+ Postgres schema
-- [x] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
-- [ ] Web UI（资产/卖单/成交）
-- [ ] 压测脚本（Caliper/自研）与调优模板
-- [x] `playsmithPvt` 集合的 collections 配置文件（`deploy/collections.json`）
-- [ ] SBE（资产级背书策略）样例
+## Roadmap
+- [x] Chaincode v0: Mint/Transfer/List/Buy + events (also BatchMint/BatchTransfer/approvals/supply/private-price listings; authorization checks implemented, see `docs/SPEC.md`)
+- [x] API Gateway (REST + batch; Fabric calls can switch to the real `GatewayClient`, defaulting to `NoopClient` dev mode)
+- [x] API Gateway: JWT auth and gRPC
+- [x] Indexer (subscribes to Fabric events) + Postgres schema
+- [x] Fabric Gateway SDK integration (replaces the `internal/sdk` NoopClient)
+- [ ] Web UI (assets/listings/trades)
+- [ ] Load test scripts (Caliper or in-house) and tuning templates
+- [x] `playsmithPvt` collection config file (`deploy/collections.json`)
+- [ ] SBE (asset-level endorsement policy) sample
 
-## 许可
-本项目遵循本仓库 LICENSE。
+## License
+This project follows the LICENSE of this repository.

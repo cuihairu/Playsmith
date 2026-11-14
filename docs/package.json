@@ -1,0 +1,13 @@
+{
+  "name": "@playsmith/docs",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}
