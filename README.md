@@ -75,20 +75,25 @@ flowchart LR
 
 实现（`internal/auth`）
 - 平台托管（HS256）：`POST /api/v1/auth/token`（带 `X-Issue-Secret`）签发 JWT；REST 与 gRPC 均要求 `Authorization: Bearer <jwt>`
-- 自持证书：仍通过 Gateway 直连（`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`），JWT 未启用时 REST 保持开放（开发模式）
+- 按操作授权：所有已鉴权调用要求 JWT 携带非空 `mspId` 与 `role`；`Mint`/`BatchMint` 要求 `role=MINTER`（网关层把关，与链码 `requireMinter` 同规则；`internal/auth/authorize.go`）
+- 网关 Fabric 身份：`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`/`FABRIC_MSP_ID` 配置网关进程提交交易所用的 X.509 身份（当前所有调用共用同一身份，按 subject 的身份隔离待做，见 todo.md）；JWT 未启用时 REST 保持开放（开发模式）
 - 传输安全：设 `TLS_CERT_PATH`/`TLS_KEY_PATH`（PEM 证书/私钥）时，REST 与 gRPC 均以 TLS 提供服务；未配置时回退明文（仅限开发）
 
-REST（示例）
-- `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`
+REST（已实现端点；字段详见 SPEC.md API Mapping）
+- `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`（JWT 需 `role=MINTER`）
+- `POST /api/v1/assets/batchMint` body: `{ids, tos, amounts, uris}`（JWT 需 `role=MINTER`）
 - `POST /api/v1/assets/transfer` body: `{tokenId, from, to, amount}`
+- `POST /api/v1/assets/batchTransfer` body: `{ids, from, to, amounts}`
+- `POST /api/v1/assets/approveAll` body: `{owner, operator, approved}`
+- `GET /api/v1/assets/:tokenId/balance/:owner`、`/:tokenId/uri`、`/:tokenId/exists`、`/:tokenId/totalSupply`
 - `POST /api/v1/market/list` body: `{tokenId, seller, amount, price}`
+- `POST /api/v1/market/list-private` body: `{tokenId, seller, amount, price}`（price 经 transient 传递）
+- `POST /api/v1/market/cancel` body: `{tokenId, seller, listingId}`
 - `POST /api/v1/market/buy` body: `{tokenId, seller, listingId, buyer, amount}`
-- `GET /api/v1/assets/:tokenId/balance/:owner`
-- `GET /api/v1/market/listings?tokenId=...&seller=...`
-- 批量接口：`POST /api/v1/batch` 支持同构/异构请求批量提交（降低往返与背书成本）
+- 卖单/成交检索查询（listings）为规划项：基于 Indexer 的 Postgres 投影，查询 API 与 Web UI 一并待实现
 
 gRPC（可选）
-- 同名服务定义，返回 TxID、区块号与事件回执；更低开销，适合高并发后台。交易响应带 `tx_id`（链上交易标识），即使链码无返回值也可追踪。
+- 同名服务定义，返回交易结果与 `tx_id`（链上交易标识，即使链码无返回值也可追踪）；更低开销，适合高并发后台。区块号与事件回执为规划项，当前 proto 响应仅含 `tx_id`/`result`。
 - 启用：设 `GRPC_PORT`（并设 `JWT_SECRET`，否则拒绝启动）；proto 见 `proto/playsmith/v1/gateway.proto`
 
 Web UI
@@ -110,6 +115,8 @@ Web UI
    - 鉴权：`JWT_SECRET`（≥32 字节）启用 JWT；`POST /api/v1/auth/token` 需 `X-Issue-Secret` 与 `JWT_SECRET` 相同；gRPC 端口 `GRPC_PORT`
    - Indexer：`cmd/indexer`（订阅链码事件并 upsert 到 Postgres；需 `POSTGRES_DSN` 与 Fabric 环境变量）
    - Web UI：`web/`（当前为占位；查询页待实现）
+4) 构建与测试
+   - `make build` / `make test`（均先跑 `proto-check` 生成物禁改守卫）；再生成 `make proto`（protoc 版本钉在 Makefile，`make proto-install` 安装插件并校验工具链）
 
 参考目录
 - `chaincode/playsmith-assets/`：链码（Go，已实现 Mint/Transfer/Batch/List/Buy/Cancel/approvals/supply/private price）
@@ -135,7 +142,7 @@ Fabric 层
 - 秒级终局：端到端常见 0.8-2.5s（视批量与背书）
 
 ## 权限与隐私
-- 组织身份（MSP/CA），证书属性 `role=MINTER/OPERATOR`
+- 组织身份（MSP/CA）；铸造检查证书属性 `role=MINTER`；operator 授权走链上 `op~owner~operator` 状态，不使用证书属性
 - 背书策略：`AND('Org1.peer','Org2.peer')`；资产级 SBE 可进一步加严
 - 私有数据集合：价格、对手、结算明细仅 Org1/Org2 可见；链上存哈希校验
 
@@ -147,7 +154,8 @@ Fabric 层
 - [x] Fabric Gateway SDK 接入（替换 `internal/sdk` 的 NoopClient）
 - [ ] Web UI（资产/卖单/成交）
 - [ ] 压测脚本（Caliper/自研）与调优模板
-- [x] SBE 样例与 `playsmithPvt` 集合的 collections 配置文件
+- [x] `playsmithPvt` 集合的 collections 配置文件（`deploy/collections.json`）
+- [ ] SBE（资产级背书策略）样例
 
 ## 许可
 本项目遵循本仓库 LICENSE。

@@ -35,7 +35,7 @@
 
 - [x] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。
   - 证据（按操作授权臂已修）：`internal/auth/authorize.go` `Claims.Authorize`（所有已鉴权调用要求非空 mspId+role；`Mint`/`BatchMint` 要求 `role=MINTER`，对齐 SPEC Authorization 与链码 `requireMinter`）；`cmd/api/main.go` REST `authMiddleware` 与 gRPC `grpcAuthUnaryInterceptor` 均调用 `Authorize`（经 `gatewayOperation`/`operationFromFullMethod` 映射操作）；测试 `TestAuthMiddlewareDeniesNonMinterMint`（PLAYER→Mint→403）、`TestAuthMiddlewareAllowsMinterMint`（MINTER→Mint→200）、`TestAuthMiddlewareRequiresIdentity`（空 mspId/role→403）、`TestGRPCAuthInterceptorDeniesNonMinterMint`（PLAYER→Mint→PermissionDenied）、`TestGRPCAuthInterceptorQueryNeedsIdentity`、`TestAuthorizeMinterGate` 等通过（`go test ./...`，2026-11-09）。
-  - 绑定每游戏服 Fabric 身份臂仍 BLOCKED：需真实机器/凭据（Fabric CA 为每游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证，未修。
+  - 绑定每游戏服 Fabric 身份臂仍 BLOCKED：需真实机器/凭据（Fabric CA 为每游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证，未修。本行 `[x]` 仅覆盖按操作授权臂；身份隔离臂已单独重登为下方未勾条目（`todo.md:69`，2026-11-13 codex 审），不在本行口径内（2026-11-14 G2 审计纠正）。
 - [x] 审核发现：HTTP 和 gRPC 均监听明文连接，直接部署时签发密钥及 bearer token 会在网络中明文传输，泄露后可伪造令牌或冒用调用者（cmd/api/main.go:336）。
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；未配置时回退明文（开发模式）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:45）。
@@ -84,4 +84,9 @@
 - [Major] 依赖升级未完成 genproto 拆包迁移 | 位置 [chaincode/playsmith-assets/go.mod:28](/home/cui/workspaces/Playsmith/chaincode/playsmith-assets/go.mod:28) | 问题：`34658f3` 将 gRPC 升至 `v1.85.0`，却保留包含 `googleapis/rpc/status` 的旧整体模块 `genproto@…20230110…`；新版 gRPC 又依赖独立的 `genproto/googleapis/rpc@…20260817…`。只读 `go mod graph` 确认两者同时进入依赖图 | 影响：同一导入路径存在双重提供者，依赖补齐后会形成 ambiguous import，不能据版本号升级认定链码构建已验证 | 修复方向：升级整体 genproto 至拆包后的兼容版本，整理模块及校验和，并单独构建、测试链码模块。
 - [Major] 原始事件去重未阻止重复余额变更 | 位置 [cmd/indexer/main.go:129](/home/cui/workspaces/Playsmith/cmd/indexer/main.go:129) | 问题：`INSERT ... ON CONFLICT DO NOTHING` 后未检查插入是否成功，仍继续执行 `handleTransfer` 或 `handleTrade` | 影响：重放同一事件时，原始记录只有一份，余额却重复扣增；成交记录的去重也无法撤销已经执行的余额修改 | 修复方向：仅在首次插入事件时执行投影，并在同一事务内完成；补重复投递测试。
 - [Major] 标准测试入口遗漏整个链码模块 | 位置 [Makefile:32](/home/cui/workspaces/Playsmith/Makefile:32) | 问题：`test` 只执行根模块的 `go test ./...`，不会进入具有独立 go.mod 的 `chaincode/playsmith-assets`；build、vet 同样遗漏 | 影响：`04f4fad`/`2e92e6c` 引入的标准检查入口无法验证核心链码，也无法发现 `34658f3` 对链码依赖造成的回归 | 修复方向：三个入口显式检查两个 Go 模块。
+
+## G2 文档审计待办（2026-11-14）
+
+- [ ] P1：建最小 vitepress 文档站（locales：`/`=en、`/zh/`=zh）+ README 双语对（README.md / README.zh.md）。舰队既定契约「无站仓建最小 vitepress 站」；当前本仓无站、无双语对，探针 /tmp/fleet-url-g2.jsonl 显示线上 `/` 与 `/zh/` 均 404。
+- [ ] P2：文档站首访按 `navigator.language` 自动跳转 `/zh/`（增强项，基线为手动切换+显式链接；等用户拍板范围，不随建站默认实施）。
 - [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
