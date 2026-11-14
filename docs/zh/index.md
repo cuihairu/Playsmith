@@ -7,10 +7,10 @@ hero:
   actions:
     - theme: brand
       text: 功能与路由
-      link: /features
+      link: /zh/features
     - theme: alt
       text: 配置
-      link: /configuration
+      link: /zh/configuration
 features:
   - title: 一份链码承载账本协议
     details: 铸造、转移、批量、授权、元数据、供应量与上架都在 `playsmith-assets` 链码模块里。复合键（`bal`、`meta`、`supply`、`op`、`ask`）让每次写入只碰极少量键，交易之间不易撞车。
