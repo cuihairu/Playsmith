@@ -34,3 +34,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Built chaincode binary (`go build ./...` inside the module drops one here)
+chaincode/playsmith-assets/playsmith-assets

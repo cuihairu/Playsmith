@@ -5,6 +5,8 @@ import (
     "encoding/hex"
     "encoding/json"
     "errors"
+    "math"
+    "sort"
     "strconv"
 	"strings"
 
@@ -63,11 +65,16 @@ func (c *GameContract) Transfer(ctx contractapi.TransactionContextInterface, tok
     if err := requireTransferAuth(ctx, from); err != nil {
         return err
     }
-    if err := putSubBalance(ctx, tokenID, from, amount); err != nil {
-        return err
-    }
-    if err := putAddBalance(ctx, tokenID, to, amount); err != nil {
-        return err
+    // A self-transfer nets to zero. Reading and then writing the same balance
+    // key would double credit it (GetState does not observe this transaction's
+    // pending writes), so skip both writes and keep the balance untouched.
+    if from != to {
+        if err := putSubBalance(ctx, tokenID, from, amount); err != nil {
+            return err
+        }
+        if err := putAddBalance(ctx, tokenID, to, amount); err != nil {
+            return err
+        }
     }
     _ = emitEvent(ctx, "TransferSingle", map[string]any{"operator": invokerID(ctx), "from": from, "to": to, "id": tokenID, "value": amount})
     return nil
@@ -77,6 +84,9 @@ func (c *GameContract) Transfer(ctx contractapi.TransactionContextInterface, tok
 func (c *GameContract) ListForSale(ctx contractapi.TransactionContextInterface, tokenID, seller string, amount uint64, price uint64) (string, error) {
 	if tokenID == "" || seller == "" || amount == 0 {
 		return "", errors.New("invalid args")
+	}
+	if err := requireTransferAuth(ctx, seller); err != nil {
+		return "", err
 	}
 	if err := requireBalance(ctx, tokenID, seller, amount); err != nil {
 		return "", err
@@ -123,15 +133,36 @@ func (c *GameContract) Buy(ctx contractapi.TransactionContextInterface, tokenID,
 		ask.Amount = amt
 		ask.Price = &price
 	}
-	if err := putSubBalance(ctx, tokenID, seller, amount); err != nil {
-		return err
+	if amount > ask.Amount {
+		return errors.New("amount exceeds listing")
 	}
-	if err := putAddBalance(ctx, tokenID, buyer, amount); err != nil {
-		return err
+	if seller != buyer {
+		if err := putSubBalance(ctx, tokenID, seller, amount); err != nil {
+			return err
+		}
+		if err := putAddBalance(ctx, tokenID, buyer, amount); err != nil {
+			return err
+		}
 	}
-    if err := ctx.GetStub().DelState(askKey); err != nil {
-        return err
-    }
+	if amount == ask.Amount {
+		if err := ctx.GetStub().DelState(askKey); err != nil {
+			return err
+		}
+	} else {
+		// Partial fill: keep the listing alive for its remaining units so a
+		// smaller request cannot consume more of it than the request asked for.
+		remaining := map[string]any{"amount": ask.Amount - amount}
+		if ask.Price != nil {
+			remaining["price"] = *ask.Price
+		} else {
+			remaining["priceHash"] = ask.PriceHash
+		}
+		remaining["ts"] = txTS(ctx)
+		rb, _ := json.Marshal(remaining)
+		if err := ctx.GetStub().PutState(askKey, rb); err != nil {
+			return err
+		}
+	}
     tradePayload := map[string]any{"id": tokenID, "seller": seller, "buyer": buyer, "listingId": listingID, "amount": amount}
     if ask.Price != nil {
         // public listing: real price, no priceHash key
@@ -162,17 +193,45 @@ func (c *GameContract) BalanceOf(ctx contractapi.TransactionContextInterface, to
 	return v, nil
 }
 
-// BatchMint accepts JSON arrays for ids, tos, amounts, uris
+// BatchMint accepts JSON arrays for ids, tos, amounts, uris.
+//
+// It does not loop Mint: Fabric's GetState returns the value committed before
+// this transaction, so chained single mints to the same key would each read the
+// stale value and the last write would win. All changes are aggregated per key
+// and each key is read, validated and written exactly once.
 func (c *GameContract) BatchMint(ctx contractapi.TransactionContextInterface, idsJSON, tosJSON, amountsJSON, urisJSON string) error {
     ids, err := parseStrArray(idsJSON); if err != nil { return err }
     tos, err := parseStrArray(tosJSON); if err != nil { return err }
     amts, err := parseUintArray(amountsJSON); if err != nil { return err }
     uris, err := parseStrArray(urisJSON); if err != nil { return err }
     if len(ids) != len(tos) || len(ids) != len(amts) || len(ids) != len(uris) { return errors.New("length mismatch") }
+    if err := requireMinter(ctx); err != nil { return err }
+    bal, supply := newPendingBalance(), newPendingBalance()
     for i := range ids {
-        if err := c.Mint(ctx, ids[i], tos[i], uris[i], amts[i]); err != nil { return err }
+        if ids[i] == "" || tos[i] == "" || amts[i] == 0 { return errors.New("invalid args") }
+        bkey, err := balKey(ctx, ids[i], tos[i])
+        if err != nil { return err }
+        if err := bal.add(bkey, amts[i]); err != nil { return err }
+        skey, err := ctx.GetStub().CreateCompositeKey("supply", []string{ids[i]})
+        if err != nil { return err }
+        if err := supply.add(skey, amts[i]); err != nil { return err }
     }
-    _ = emitEvent(ctx, "TransferBatch", map[string]any{"operator": invokerID(ctx), "from": "0x0", "to": "batch", "ids": ids, "values": amts})
+    if err := bal.apply(ctx); err != nil { return err }
+    if err := supply.apply(ctx); err != nil { return err }
+    for i := range ids {
+        metaKey, err := ctx.GetStub().CreateCompositeKey("meta", []string{ids[i]})
+        if err != nil { return err }
+        exists, err := ctx.GetStub().GetState(metaKey)
+        if err != nil { return err }
+        if len(exists) == 0 {
+            b, _ := json.Marshal(Meta{TokenID: ids[i], URI: uris[i], Creator: tos[i]})
+            if err := ctx.GetStub().PutState(metaKey, b); err != nil { return err }
+            _ = emitEvent(ctx, "URI", map[string]any{"id": ids[i], "uri": uris[i]})
+        }
+    }
+    // One event per transaction carries every recipient: real Fabric keeps only
+    // the last SetEvent, so per-item events would all be dropped.
+    _ = emitEvent(ctx, "TransferBatch", map[string]any{"operator": invokerID(ctx), "from": "0x0", "tos": tos, "ids": ids, "values": amts})
     return nil
 }
 
@@ -181,16 +240,34 @@ func (c *GameContract) BatchTransfer(ctx contractapi.TransactionContextInterface
     ids, err := parseStrArray(idsJSON); if err != nil { return err }
     amts, err := parseUintArray(amountsJSON); if err != nil { return err }
     if len(ids) != len(amts) { return errors.New("length mismatch") }
+    if from == "" || to == "" { return errors.New("invalid args") }
+    if err := requireTransferAuth(ctx, from); err != nil { return err }
+    bal := newPendingBalance()
     for i := range ids {
-        if err := c.Transfer(ctx, ids[i], from, to, amts[i]); err != nil { return err }
+        if ids[i] == "" || amts[i] == 0 { return errors.New("invalid args") }
+        if from != to {
+            fk, err := balKey(ctx, ids[i], from)
+            if err != nil { return err }
+            if err := bal.sub(fk, amts[i]); err != nil { return err }
+            tk, err := balKey(ctx, ids[i], to)
+            if err != nil { return err }
+            if err := bal.add(tk, amts[i]); err != nil { return err }
+        }
     }
-    _ = emitEvent(ctx, "TransferBatch", map[string]any{"operator": invokerID(ctx), "from": from, "to": to, "ids": ids, "values": amts})
+    if err := bal.apply(ctx); err != nil { return err }
+    tos := make([]string, len(ids))
+    for i := range ids { tos[i] = to }
+    _ = emitEvent(ctx, "TransferBatch", map[string]any{"operator": invokerID(ctx), "from": from, "to": to, "tos": tos, "ids": ids, "values": amts})
     return nil
 }
 
-// SetApprovalForAll sets operator approval for owner
+// SetApprovalForAll sets operator approval for owner. Only the owner itself may
+// change its own approval state.
 func (c *GameContract) SetApprovalForAll(ctx contractapi.TransactionContextInterface, owner, operator, approved string) error {
     if owner == "" || operator == "" { return errors.New("invalid args") }
+    inv, err := invokerIdentity(ctx)
+    if err != nil { return err }
+    if inv != owner { return errors.New("not authorized: only owner can set approval") }
     key, _ := ctx.GetStub().CreateCompositeKey("op", []string{owner, operator})
     v := "0"
     if approved == "true" || approved == "1" { v = "1" }
@@ -239,6 +316,7 @@ func (c *GameContract) Exists(ctx contractapi.TransactionContextInterface, token
 // ListForSalePrivate stores price in private data, public state has amount and priceHash
 func (c *GameContract) ListForSalePrivate(ctx contractapi.TransactionContextInterface, tokenID, seller string, amount uint64) (string, error) {
     if tokenID == "" || seller == "" || amount == 0 { return "", errors.New("invalid args") }
+    if err := requireTransferAuth(ctx, seller); err != nil { return "", err }
     if err := requireBalance(ctx, tokenID, seller, amount); err != nil { return "", err }
     // expect transient key "price" with bytes of price as decimal string
     tm, err := ctx.GetStub().GetTransient()
@@ -264,7 +342,14 @@ func (c *GameContract) ListForSalePrivate(ctx contractapi.TransactionContextInte
 
 // CancelListing removes a listing
 func (c *GameContract) CancelListing(ctx contractapi.TransactionContextInterface, tokenID, seller, listingID string) error {
+    if tokenID == "" || seller == "" || listingID == "" { return errors.New("invalid args") }
+    if err := requireTransferAuth(ctx, seller); err != nil { return err }
     askKey, _ := ctx.GetStub().CreateCompositeKey("ask", []string{tokenID, seller, listingID})
+    // DelState succeeds on an absent key, which would emit AskCanceled for a
+    // listing that was never created. Verify the listing exists first.
+    v, err := ctx.GetStub().GetState(askKey)
+    if err != nil { return err }
+    if len(v) == 0 { return errors.New("listing not found") }
     if err := ctx.GetStub().DelState(askKey); err != nil { return err }
     // best-effort delete private
     pvtKey, _ := ctx.GetStub().CreateCompositeKey("askpvt", []string{tokenID, seller, listingID})
@@ -305,12 +390,8 @@ func requireMinter(ctx contractapi.TransactionContextInterface) error {
 }
 
 func requireTransferAuth(ctx contractapi.TransactionContextInterface, from string) error {
-	ci := ctx.GetClientIdentity()
-	if ci == nil {
-		return errors.New("not authorized: cannot determine invoker identity")
-	}
-	inv, err := ci.GetID()
-	if err != nil { return errors.New("cannot determine invoker identity") }
+	inv, err := invokerIdentity(ctx)
+	if err != nil { return err }
 	if inv == from { return nil }
 	key, _ := ctx.GetStub().CreateCompositeKey("op", []string{from, inv})
 	b, err := ctx.GetStub().GetState(key)
@@ -319,39 +400,50 @@ func requireTransferAuth(ctx contractapi.TransactionContextInterface, from strin
 	return nil
 }
 
+// invokerIdentity resolves the client identity id, failing closed.
+func invokerIdentity(ctx contractapi.TransactionContextInterface) (string, error) {
+	ci := ctx.GetClientIdentity()
+	if ci == nil {
+		return "", errors.New("not authorized: cannot determine invoker identity")
+	}
+	inv, err := ci.GetID()
+	if err != nil { return "", errors.New("cannot determine invoker identity") }
+	return inv, nil
+}
+
 func txTS(ctx contractapi.TransactionContextInterface) int64 {
 	ts, err := ctx.GetStub().GetTxTimestamp()
 	if err != nil || ts == nil { return 0 }
 	return ts.GetSeconds()
 }
 
+func checkAdd(n, amt uint64) (uint64, error) {
+	if amt > math.MaxUint64-n {
+		return 0, errors.New("numeric overflow")
+	}
+	return n + amt, nil
+}
+
+func readUint(ctx contractapi.TransactionContextInterface, k string) (uint64, error) {
+	cur, err := ctx.GetStub().GetState(k)
+	if err != nil { return 0, err }
+	if len(cur) == 0 { return 0, nil }
+	return strconv.ParseUint(string(cur), 10, 64)
+}
+
 func putAddBalance(ctx contractapi.TransactionContextInterface, tokenID, owner string, amt uint64) error {
 	k, _ := balKey(ctx, tokenID, owner)
-	cur, err := ctx.GetStub().GetState(k)
-	if err != nil {
-		return err
-	}
-	var n uint64
-	if len(cur) > 0 {
-		v, err := strconv.ParseUint(string(cur), 10, 64)
-		if err != nil {
-			return err
-		}
-		n = v
-	}
-	return ctx.GetStub().PutState(k, []byte(strconv.FormatUint(n+amt, 10)))
+	n, err := readUint(ctx, k)
+	if err != nil { return err }
+	v, err := checkAdd(n, amt)
+	if err != nil { return err }
+	return ctx.GetStub().PutState(k, []byte(strconv.FormatUint(v, 10)))
 }
 
 func putSubBalance(ctx contractapi.TransactionContextInterface, tokenID, owner string, amt uint64) error {
 	k, _ := balKey(ctx, tokenID, owner)
-	cur, err := ctx.GetStub().GetState(k)
-	if err != nil {
-		return err
-	}
-	v, err := strconv.ParseUint(string(cur), 10, 64)
-	if err != nil {
-		return err
-	}
+	v, err := readUint(ctx, k)
+	if err != nil { return err }
 	if v < amt {
 		return errors.New("insufficient balance")
 	}
@@ -360,15 +452,69 @@ func putSubBalance(ctx contractapi.TransactionContextInterface, tokenID, owner s
 
 func addSupply(ctx contractapi.TransactionContextInterface, tokenID string, amt uint64) error {
     k, _ := ctx.GetStub().CreateCompositeKey("supply", []string{tokenID})
-    cur, err := ctx.GetStub().GetState(k)
+    n, err := readUint(ctx, k)
     if err != nil { return err }
-    var n uint64
-    if len(cur) > 0 {
-        v, err := strconv.ParseUint(string(cur), 10, 64)
-        if err != nil { return err }
-        n = v
-    }
-    return ctx.GetStub().PutState(k, []byte(strconv.FormatUint(n+amt, 10)))
+    v, err := checkAdd(n, amt)
+    if err != nil { return err }
+    return ctx.GetStub().PutState(k, []byte(strconv.FormatUint(v, 10)))
+}
+
+// pendingBalance accumulates per-key balance deltas before they are applied.
+//
+// A single state key can be touched many times inside one transaction (a batch
+// minting twice to the same recipient, a batch transfer of several tokens).
+// Applying each delta straight away is wrong here: the shim's GetState returns
+// the value committed before this transaction, so every delta would read the
+// same base and the last write would silently discard the earlier ones.
+// Aggregating first, then reading, validating and writing each key exactly
+// once, matches what a real ledger would commit.
+type pendingBalance struct {
+	adds map[string]uint64
+	subs map[string]uint64
+}
+
+func newPendingBalance() pendingBalance {
+	return pendingBalance{adds: map[string]uint64{}, subs: map[string]uint64{}}
+}
+
+func (p pendingBalance) add(key string, amt uint64) error {
+	v, err := checkAdd(p.adds[key], amt)
+	if err != nil { return err }
+	p.adds[key] = v
+	return nil
+}
+
+func (p pendingBalance) sub(key string, amt uint64) error {
+	v, err := checkAdd(p.subs[key], amt)
+	if err != nil { return err }
+	p.subs[key] = v
+	return nil
+}
+
+// apply nets each key's adds and subs, then reads, validates and writes that
+// key once. Keys whose delta nets to zero still get a write so their on-chain
+// value stays a decimal of the committed base.
+func (p pendingBalance) apply(ctx contractapi.TransactionContextInterface) error {
+	keys := make([]string, 0, len(p.adds)+len(p.subs))
+	seen := map[string]bool{}
+	for k := range p.adds {
+		if !seen[k] { seen[k] = true; keys = append(keys, k) }
+	}
+	for k := range p.subs {
+		if !seen[k] { seen[k] = true; keys = append(keys, k) }
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		base, err := readUint(ctx, key)
+		if err != nil { return err }
+		added, err := checkAdd(base, p.adds[key])
+		if err != nil { return err }
+		if added < p.subs[key] { return errors.New("insufficient balance") }
+		if err := ctx.GetStub().PutState(key, []byte(strconv.FormatUint(added-p.subs[key], 10))); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func emitEvent(ctx contractapi.TransactionContextInterface, name string, payload any) error {

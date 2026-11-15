@@ -127,14 +127,15 @@ func TestTransferOwnerAndOperator(t *testing.T) {
 func TestListForSaleRequiresBalance(t *testing.T) {
 	c := &GameContract{}
 	ctx := getCtx(t, map[string]string{"role": "MINTER"})
-	if err := c.Mint(ctx, "t1", "seller", "u", 3); err != nil {
+	seller := testInvokerID(t, ctx)
+	if err := c.Mint(ctx, "t1", seller, "u", 3); err != nil {
 		t.Fatal(err)
 	}
 	drainEvents(t, ctx)
-	if _, err := c.ListForSale(ctx, "t1", "seller", 5, 100); err == nil {
+	if _, err := c.ListForSale(ctx, "t1", seller, 5, 100); err == nil {
 		t.Fatal("expected insufficient balance to be rejected")
 	}
-	listingID, err := c.ListForSale(ctx, "t1", "seller", 3, 100)
+	listingID, err := c.ListForSale(ctx, "t1", seller, 3, 100)
 	if err != nil {
 		t.Fatalf("expected successful listing: %v", err)
 	}
@@ -146,16 +147,17 @@ func TestListForSaleRequiresBalance(t *testing.T) {
 func TestPublicAskIsJSONWithTS(t *testing.T) {
 	c := &GameContract{}
 	ctx := getCtx(t, map[string]string{"role": "MINTER"})
-	if err := c.Mint(ctx, "t1", "seller", "u", 5); err != nil {
+	seller := testInvokerID(t, ctx)
+	if err := c.Mint(ctx, "t1", seller, "u", 5); err != nil {
 		t.Fatal(err)
 	}
 	drainEvents(t, ctx)
-	listingID, err := c.ListForSale(ctx, "t1", "seller", 5, 42)
+	listingID, err := c.ListForSale(ctx, "t1", seller, 5, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stub := ctx.GetStub().(*shimtest.MockStub)
-	key, err := stub.CreateCompositeKey("ask", []string{"t1", "seller", listingID})
+	key, err := stub.CreateCompositeKey("ask", []string{"t1", seller, listingID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,14 +180,15 @@ func TestPublicAskIsJSONWithTS(t *testing.T) {
 func TestTradeEventPriceFields(t *testing.T) {
 	c := &GameContract{}
 	ctx := getCtx(t, map[string]string{"role": "MINTER"})
-	if err := c.Mint(ctx, "t1", "seller", "u", 2); err != nil {
+	seller := testInvokerID(t, ctx)
+	if err := c.Mint(ctx, "t1", seller, "u", 2); err != nil {
 		t.Fatal(err)
 	}
-	listingID, err := c.ListForSale(ctx, "t1", "seller", 2, 7)
+	listingID, err := c.ListForSale(ctx, "t1", seller, 2, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Buy(ctx, "t1", "seller", listingID, "buyer", 2); err != nil {
+	if err := c.Buy(ctx, "t1", seller, listingID, "buyer", 2); err != nil {
 		t.Fatal(err)
 	}
 	payload := lastEventPayload(t, ctx, "Trade")
@@ -200,18 +203,19 @@ func TestTradeEventPriceFields(t *testing.T) {
 func TestPrivateTradeEventPriceHash(t *testing.T) {
 	c := &GameContract{}
 	ctx := getCtx(t, map[string]string{"role": "MINTER"})
-	if err := c.Mint(ctx, "t1", "seller", "u", 2); err != nil {
+	seller := testInvokerID(t, ctx)
+	if err := c.Mint(ctx, "t1", seller, "u", 2); err != nil {
 		t.Fatal(err)
 	}
 	stub := ctx.GetStub().(*shimtest.MockStub)
 	if err := stub.SetTransient(map[string][]byte{"price": []byte("99")}); err != nil {
 		t.Fatal(err)
 	}
-	listingID, err := c.ListForSalePrivate(ctx, "t1", "seller", 2)
+	listingID, err := c.ListForSalePrivate(ctx, "t1", seller, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Buy(ctx, "t1", "seller", listingID, "buyer", 2); err != nil {
+	if err := c.Buy(ctx, "t1", seller, listingID, "buyer", 2); err != nil {
 		t.Fatal(err)
 	}
 	payload := lastEventPayload(t, ctx, "Trade")
@@ -227,19 +231,20 @@ func TestPrivateTradeEventPriceHash(t *testing.T) {
 func TestBuySupportsLegacyAskFormat(t *testing.T) {
 	c := &GameContract{}
 	ctx := getCtx(t, map[string]string{"role": "MINTER"})
-	if err := c.Mint(ctx, "t1", "seller", "u", 2); err != nil {
+	seller := testInvokerID(t, ctx)
+	if err := c.Mint(ctx, "t1", seller, "u", 2); err != nil {
 		t.Fatal(err)
 	}
 	stub := ctx.GetStub().(*shimtest.MockStub)
 	stub.MockTransactionStart("legacy-listing")
-	key, err := stub.CreateCompositeKey("ask", []string{"t1", "seller", "legacy-listing"})
+	key, err := stub.CreateCompositeKey("ask", []string{"t1", seller, "legacy-listing"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := stub.PutState(key, []byte("77:2")); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.Buy(ctx, "t1", "seller", "legacy-listing", "buyer", 2); err != nil {
+	if err := c.Buy(ctx, "t1", seller, "legacy-listing", "buyer", 2); err != nil {
 		t.Fatalf("legacy ask should remain buyable: %v", err)
 	}
 	payload := lastEventPayload(t, ctx, "Trade")
