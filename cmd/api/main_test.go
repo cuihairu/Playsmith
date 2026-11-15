@@ -255,3 +255,31 @@ func TestTLSPaths(t *testing.T) {
 		t.Fatalf("cert=%q key=%q", certFile, keyFile)
 	}
 }
+
+func TestTLSConfigRejectsHalfConfiguration(t *testing.T) {
+	t.Setenv("TLS_CERT_PATH", "")
+	t.Setenv("TLS_KEY_PATH", "")
+	certFile, keyFile, err := tlsConfig()
+	if err != nil || certFile != "" || keyFile != "" {
+		t.Fatalf("unset TLS = %q %q %v; want both empty, no error", certFile, keyFile, err)
+	}
+
+	t.Setenv("TLS_CERT_PATH", "/tmp/cert.pem")
+	t.Setenv("TLS_KEY_PATH", "")
+	if _, _, err := tlsConfig(); err == nil {
+		t.Fatal("cert without key was accepted; that deploys plaintext")
+	}
+
+	t.Setenv("TLS_CERT_PATH", "")
+	t.Setenv("TLS_KEY_PATH", "/tmp/key.pem")
+	if _, _, err := tlsConfig(); err == nil {
+		t.Fatal("key without cert was accepted; that deploys plaintext")
+	}
+
+	t.Setenv("TLS_CERT_PATH", "/tmp/cert.pem")
+	t.Setenv("TLS_KEY_PATH", "/tmp/key.pem")
+	certFile, keyFile, err = tlsConfig()
+	if err != nil || certFile != "/tmp/cert.pem" || keyFile != "/tmp/key.pem" {
+		t.Fatalf("paired TLS = %q %q %v", certFile, keyFile, err)
+	}
+}

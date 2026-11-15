@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -266,7 +267,11 @@ func main() {
 		}()
 	}
 	log.Printf("API listening on %s", addr)
-	if certFile, keyFile := tlsPaths(); certFile != "" && keyFile != "" {
+	certFile, keyFile, err := tlsConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if certFile != "" && keyFile != "" {
 		log.Printf("TLS enabled with cert=%s", certFile)
 		if err := http.ListenAndServeTLS(addr, certFile, keyFile, s.router()); err != nil {
 			log.Fatal(err)
@@ -387,7 +392,11 @@ func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager) error {
 		return err
 	}
 	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcAuthUnaryInterceptor(manager))}
-	if certFile, keyFile := tlsPaths(); certFile != "" && keyFile != "" {
+	certFile, keyFile, err := tlsConfig()
+	if err != nil {
+		return err
+	}
+	if certFile != "" && keyFile != "" {
 		creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
 		if err != nil {
 			return err
@@ -463,4 +472,22 @@ func (s *Server) assetRoute(w http.ResponseWriter, r *http.Request) {
 // When either is empty, TLS is not configured and the server listens plaintext.
 func tlsPaths() (string, string) {
 	return os.Getenv("TLS_CERT_PATH"), os.Getenv("TLS_KEY_PATH")
+}
+
+// tlsConfig resolves the TLS material and fails on a half-configured deployment.
+// Requiring both paths to be set together is what keeps a deployment that meant
+// to be TLS-encrypted from quietly serving bearer tokens and the signing secret
+// over plaintext because one of the two paths was missed.
+func tlsConfig() (certFile, keyFile string, err error) {
+	certFile, keyFile = tlsPaths()
+	switch {
+	case certFile != "" && keyFile != "":
+		return certFile, keyFile, nil
+	case certFile == "" && keyFile == "":
+		return "", "", nil
+	case certFile == "":
+		return "", "", errors.New("TLS_KEY_PATH is set but TLS_CERT_PATH is not; set both or neither")
+	default:
+		return "", "", errors.New("TLS_CERT_PATH is set but TLS_KEY_PATH is not; set both or neither")
+	}
 }
