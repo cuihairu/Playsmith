@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -9,6 +10,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"time"
 
 	"github.com/hyperledger/fabric-gateway/pkg/client"
 	"github.com/hyperledger/fabric-gateway/pkg/identity"
@@ -19,10 +22,14 @@ import (
 )
 
 const (
-	chaincodeName = "playsmith-assets"
-	schema        = `
+	chaincodeName    = "playsmith-assets"
+	stateKey         = "playsmith-events"
+	retryMax         = 3
+	resubscribeDelay = 5 * time.Second
+
+	schema = `
 CREATE TABLE IF NOT EXISTS chaincode_events (
-    block_number BIGINT NOT NULL,
+    block_number NUMERIC NOT NULL,
     transaction_id TEXT NOT NULL,
     event_name TEXT NOT NULL,
     payload JSONB NOT NULL,
@@ -32,15 +39,16 @@ CREATE TABLE IF NOT EXISTS chaincode_events (
 CREATE TABLE IF NOT EXISTS balances (
     token_id TEXT NOT NULL,
     owner TEXT NOT NULL,
-    balance BIGINT NOT NULL DEFAULT 0,
+    balance NUMERIC NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (token_id, owner)
 );
 CREATE TABLE IF NOT EXISTS listings (
     listing_id TEXT PRIMARY KEY,
     token_id TEXT NOT NULL,
     seller TEXT NOT NULL,
-    amount BIGINT NOT NULL,
-    price BIGINT NOT NULL DEFAULT 0,
+    amount NUMERIC NOT NULL DEFAULT 0,
+    price NUMERIC NOT NULL DEFAULT 0,
     price_hash TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -51,14 +59,28 @@ CREATE TABLE IF NOT EXISTS trades (
     seller TEXT NOT NULL,
     buyer TEXT NOT NULL,
     listing_id TEXT NOT NULL,
-    amount BIGINT NOT NULL,
-    price BIGINT NOT NULL DEFAULT 0,
+    amount NUMERIC NOT NULL DEFAULT 0,
+    price NUMERIC NOT NULL DEFAULT 0,
     price_hash TEXT NOT NULL DEFAULT '',
-    block_number BIGINT NOT NULL,
+    block_number NUMERIC NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS indexer_state (
+    key TEXT PRIMARY KEY,
+    last_block NUMERIC NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_listings_token_seller ON listings(token_id, seller, status);
 CREATE INDEX IF NOT EXISTS idx_trades_token ON trades(token_id, created_at DESC);
+-- startup migration for databases created before these changes. Every
+-- statement is safe to re-run.
+ALTER TABLE balances ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE balances ALTER COLUMN balance TYPE NUMERIC;
+ALTER TABLE listings ALTER COLUMN amount TYPE NUMERIC;
+ALTER TABLE listings ALTER COLUMN price TYPE NUMERIC;
+ALTER TABLE trades ALTER COLUMN amount TYPE NUMERIC;
+ALTER TABLE trades ALTER COLUMN price TYPE NUMERIC;
+ALTER TABLE chaincode_events ALTER COLUMN block_number TYPE NUMERIC;
+ALTER TABLE trades ALTER COLUMN block_number TYPE NUMERIC;
 `
 )
 
@@ -96,7 +118,8 @@ func NewIndexerWithExec(exec execer) *Indexer {
 	return &Indexer{exec: exec}
 }
 
-// HandleEvent processes one chaincode event in a single transaction.
+// HandleEvent processes one chaincode event in a single transaction. The raw
+// event and the checkpoint advance with it, so a failure rolls both back.
 func (idx *Indexer) HandleEvent(ctx context.Context, ev *client.ChaincodeEvent) error {
 	if ev == nil {
 		return nil
@@ -121,48 +144,96 @@ func (idx *Indexer) HandleEvent(ctx context.Context, ev *client.ChaincodeEvent) 
 }
 
 func (idx *Indexer) route(ctx context.Context, ev *client.ChaincodeEvent) error {
-	var payload map[string]any
-	if err := json.Unmarshal(ev.Payload, &payload); err != nil {
-		return fmt.Errorf("unmarshal %s payload: %w", ev.EventName, err)
-	}
-	// record the raw event (dedupe by block/txid/event)
-	if _, err := idx.exec.Exec(ctx, `INSERT INTO chaincode_events(block_number, transaction_id, event_name, payload)
-VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-		int64(ev.BlockNumber), ev.TransactionID, ev.EventName, ev.Payload); err != nil {
+	payload, err := decodePayload(ev.Payload)
+	if err != nil {
 		return err
 	}
-
-	switch ev.EventName {
-	case "TransferSingle":
-		return idx.handleTransfer(ctx, payload)
-	case "TransferBatch":
-		return idx.handleTransferBatch(ctx, payload)
-	case "AskCreated":
-		return idx.handleAskCreated(ctx, payload)
-	case "AskCanceled":
-		return idx.handleAskCanceled(ctx, payload)
-	case "Trade":
-		return idx.handleTrade(ctx, payload, ev.BlockNumber)
-	default:
+	// record the raw event (dedupe by block/txid/event). Only the first insert
+	// may project: a replayed event would otherwise add its balance deltas a
+	// second time to a row that ON CONFLICT refused to rewrite.
+	tag, err := idx.exec.Exec(ctx, `INSERT INTO chaincode_events(block_number, transaction_id, event_name, payload)
+VALUES($1::numeric,$2,$3,$4) ON CONFLICT DO NOTHING`,
+		strconv.FormatUint(ev.BlockNumber, 10), ev.TransactionID, ev.EventName, ev.Payload)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
 		return nil
 	}
+
+	var err2 error
+	switch ev.EventName {
+	case "TransferSingle":
+		err2 = idx.handleTransfer(ctx, payload)
+	case "TransferBatch":
+		err2 = idx.handleTransferBatch(ctx, payload)
+	case "AskCreated":
+		err2 = idx.handleAskCreated(ctx, payload)
+	case "AskCanceled":
+		err2 = idx.handleAskCanceled(ctx, payload)
+	case "Trade":
+		err2 = idx.handleTrade(ctx, payload, ev.BlockNumber)
+	}
+	if err2 != nil {
+		return err2
+	}
+
+	// remember how far the projection has caught up; a restart resumes here
+	if _, err := idx.exec.Exec(ctx, `INSERT INTO indexer_state(key, last_block) VALUES($1,$2::numeric)
+ON CONFLICT(key) DO UPDATE SET last_block = GREATEST(indexer_state.last_block, EXCLUDED.last_block)`,
+		stateKey, strconv.FormatUint(ev.BlockNumber, 10)); err != nil {
+		return err
+	}
+	return nil
 }
+
+// decodePayload decodes into json.Number so amounts keep every decimal digit.
+// json.Unmarshal into map[string]any turns numbers into float64, which cannot
+// hold uint64 exactly: 9007199254740993 becomes 9007199254740992.
+func decodePayload(raw []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var payload map[string]any
+	if err := dec.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("unmarshal payload: %w", err)
+	}
+	return payload, nil
+}
+
+// uintField reads an unsigned quantity exactly, rejecting anything that does
+// not name a whole uint64.
+func uintField(p map[string]any, key, what string) (uint64, error) {
+	n, ok := p[key].(json.Number)
+	if !ok {
+		return 0, fmt.Errorf("invalid %s %s", what, key)
+	}
+	v, err := strconv.ParseUint(n.String(), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %s: %v", what, key, err)
+	}
+	return v, nil
+}
+
+func numArg(v uint64) string { return strconv.FormatUint(v, 10) }
 
 func (idx *Indexer) handleTransfer(ctx context.Context, p map[string]any) error {
 	tokenID, _ := p["id"].(string)
 	from, _ := p["from"].(string)
 	to, _ := p["to"].(string)
-	value, _ := p["value"].(float64)
-	if tokenID == "" || to == "" || value <= 0 {
+	value, err := uintField(p, "value", "TransferSingle")
+	if err != nil {
+		return err
+	}
+	if tokenID == "" || to == "" || value == 0 {
 		return errors.New("invalid TransferSingle payload")
 	}
 	if from != "" && from != "0x0" {
-		if _, err := idx.exec.Exec(ctx, `UPDATE balances SET balance = balance - $3, updated_at = now() WHERE token_id=$1 AND owner=$2`, tokenID, from, int64(value)); err != nil {
+		if _, err := idx.exec.Exec(ctx, `UPDATE balances SET balance = balance - $3::numeric, updated_at = now() WHERE token_id=$1 AND owner=$2`, tokenID, from, numArg(value)); err != nil {
 			return err
 		}
 	}
-	_, err := idx.exec.Exec(ctx, `INSERT INTO balances(token_id, owner, balance) VALUES($1,$2,$3)
-ON CONFLICT(token_id,owner) DO UPDATE SET balance = balances.balance + EXCLUDED.balance`, tokenID, to, int64(value))
+	_, err = idx.exec.Exec(ctx, `INSERT INTO balances(token_id, owner, balance) VALUES($1,$2,$3::numeric)
+ON CONFLICT(token_id,owner) DO UPDATE SET balance = balances.balance + EXCLUDED.balance, updated_at = now()`, tokenID, to, numArg(value))
 	return err
 }
 
@@ -176,15 +247,27 @@ func (idx *Indexer) handleTransferBatch(ctx context.Context, p map[string]any) e
 		return errors.New("invalid TransferBatch values")
 	}
 	from, _ := p["from"].(string)
-	to, _ := p["to"].(string)
 	if from == "0x0" {
 		from = ""
 	}
+	// BatchMint addresses many recipients, so the event carries a tos array
+	// parallel to ids; a single "to" field is a plain batch transfer.
+	tosAny, _ := p["tos"].([]any)
+	to, _ := p["to"].(string)
 	for i := range idsAny {
 		id, _ := idsAny[i].(string)
-		val, _ := valuesAny[i].(float64)
-		sub := map[string]any{"id": id, "from": from, "to": to, "value": val}
-		if err := idx.handleTransfer(ctx, sub); err != nil {
+		val, err := uintField(map[string]any{"value": valuesAny[i]}, "value", "TransferBatch")
+		if err != nil {
+			return err
+		}
+		dest := to
+		if i < len(tosAny) {
+			dest, _ = tosAny[i].(string)
+		}
+		if id == "" || dest == "" {
+			return errors.New("invalid TransferBatch recipient")
+		}
+		if err := idx.handleTransfer(ctx, map[string]any{"id": id, "from": from, "to": dest, "value": json.Number(numArg(val))}); err != nil {
 			return err
 		}
 	}
@@ -195,16 +278,24 @@ func (idx *Indexer) handleAskCreated(ctx context.Context, p map[string]any) erro
 	tokenID, _ := p["id"].(string)
 	seller, _ := p["seller"].(string)
 	listingID, _ := p["listingId"].(string)
-	amount, _ := p["amount"].(float64)
-	price, _ := p["price"].(float64)
+	amount, err := uintField(p, "amount", "AskCreated")
+	if err != nil {
+		return err
+	}
+	var price uint64
+	if _, ok := p["price"]; ok {
+		if price, err = uintField(p, "price", "AskCreated"); err != nil {
+			return err
+		}
+	}
 	priceHash, _ := p["priceHash"].(string)
-	if tokenID == "" || seller == "" || listingID == "" || amount <= 0 {
+	if tokenID == "" || seller == "" || listingID == "" || amount == 0 {
 		return errors.New("invalid AskCreated payload")
 	}
-	_, err := idx.exec.Exec(ctx, `INSERT INTO listings(listing_id, token_id, seller, amount, price, price_hash, status)
-VALUES($1,$2,$3,$4,$5,$6,'active')
+	_, err = idx.exec.Exec(ctx, `INSERT INTO listings(listing_id, token_id, seller, amount, price, price_hash, status)
+VALUES($1,$2,$3,$4::numeric,$5::numeric,$6,'active')
 ON CONFLICT(listing_id) DO UPDATE SET amount=EXCLUDED.amount, price=EXCLUDED.price, price_hash=EXCLUDED.price_hash, status='active', updated_at=now()`,
-		listingID, tokenID, seller, int64(amount), int64(price), priceHash)
+		listingID, tokenID, seller, numArg(amount), numArg(price), priceHash)
 	return err
 }
 
@@ -222,25 +313,63 @@ func (idx *Indexer) handleTrade(ctx context.Context, p map[string]any, blockNumb
 	seller, _ := p["seller"].(string)
 	buyer, _ := p["buyer"].(string)
 	listingID, _ := p["listingId"].(string)
-	amount, _ := p["amount"].(float64)
-	price, _ := p["price"].(float64)
-	priceHash, _ := p["priceHash"].(string)
-	if tokenID == "" || seller == "" || buyer == "" || listingID == "" || amount <= 0 {
-		return errors.New("invalid Trade payload")
-	}
-	if _, err := idx.exec.Exec(ctx, `UPDATE balances SET balance = balance - $3, updated_at=now() WHERE token_id=$1 AND owner=$2`, tokenID, seller, int64(amount)); err != nil {
+	amount, err := uintField(p, "amount", "Trade")
+	if err != nil {
 		return err
 	}
-	if _, err := idx.exec.Exec(ctx, `INSERT INTO balances(token_id, owner, balance) VALUES($1,$2,$3)
-ON CONFLICT(token_id,owner) DO UPDATE SET balance = balances.balance + EXCLUDED.balance`, tokenID, buyer, int64(amount)); err != nil {
+	var price uint64
+	if _, ok := p["price"]; ok {
+		if price, err = uintField(p, "price", "Trade"); err != nil {
+			return err
+		}
+	}
+	priceHash, _ := p["priceHash"].(string)
+	if tokenID == "" || seller == "" || buyer == "" || listingID == "" || amount == 0 {
+		return errors.New("invalid Trade payload")
+	}
+	if _, err := idx.exec.Exec(ctx, `UPDATE balances SET balance = balance - $3::numeric, updated_at=now() WHERE token_id=$1 AND owner=$2`, tokenID, seller, numArg(amount)); err != nil {
+		return err
+	}
+	if _, err := idx.exec.Exec(ctx, `INSERT INTO balances(token_id, owner, balance) VALUES($1,$2,$3::numeric)
+ON CONFLICT(token_id,owner) DO UPDATE SET balance = balances.balance + EXCLUDED.balance, updated_at = now()`, tokenID, buyer, numArg(amount)); err != nil {
 		return err
 	}
 	if _, err := idx.exec.Exec(ctx, `INSERT INTO trades(trade_id, token_id, seller, buyer, listing_id, amount, price, price_hash, block_number)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(trade_id) DO NOTHING`,
-		listingID, tokenID, seller, buyer, listingID, int64(amount), int64(price), priceHash, int64(blockNumber)); err != nil {
+VALUES($1,$2,$3,$4,$5,$6::numeric,$7::numeric,$8,$9::numeric) ON CONFLICT(trade_id) DO NOTHING`,
+		listingID, tokenID, seller, buyer, listingID, numArg(amount), numArg(price), priceHash, strconv.FormatUint(blockNumber, 10)); err != nil {
 		return err
 	}
-	_, err := idx.exec.Exec(ctx, `UPDATE listings SET status='sold', updated_at=now() WHERE listing_id=$1`, listingID)
+	_, err = idx.exec.Exec(ctx, `UPDATE listings SET status='sold', updated_at=now() WHERE listing_id=$1`, listingID)
+	return err
+}
+
+// querier can read one row; main passes the connection, tests pass a stub.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// resumeBlock reports how far an earlier run committed, so a restart picks up
+// where it stopped instead of silently dropping every transaction it was down
+// for.
+func resumeBlock(ctx context.Context, q querier) (uint64, error) {
+	var block uint64
+	if err := q.QueryRow(ctx, `SELECT last_block FROM indexer_state WHERE key=$1`, stateKey).Scan(&block); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read checkpoint: %w", err)
+	}
+	return block, nil
+}
+
+// retry repeats a transient failure instead of dropping the event.
+func retry(f func() error) error {
+	var err error
+	for attempt := 0; attempt < retryMax; attempt++ {
+		if err = f(); err == nil {
+			return nil
+		}
+	}
 	return err
 }
 
@@ -261,32 +390,65 @@ func main() {
 		log.Fatalf("create schema: %v", err)
 	}
 
-	gw, events, err := connectFabric(ctx)
+	gw, network, err := connectFabric(ctx)
 	if err != nil {
 		log.Fatalf("connect Fabric: %v", err)
 	}
 	defer gw.Close()
 
 	idx := NewIndexer(conn)
-	log.Printf("Indexer started, subscribed to chaincode %s", chaincodeName)
+	from, err := resumeBlock(ctx, conn)
+	if err != nil {
+		log.Fatalf("checkpoint: %v", err)
+	}
+	log.Printf("Indexer started, subscribed to chaincode %s from block %d", chaincodeName, from)
+	events, err := network.ChaincodeEvents(ctx, chaincodeName, client.WithStartBlock(from))
+	if err != nil {
+		log.Fatalf("subscribe: %v", err)
+	}
+
+	// committed is the last block whose projection is durable. It is the resume
+	// point if the stream closes: the events table rejects a duplicate
+	// (block, tx, event) row, so replaying an already committed event is a
+	// no-op instead of double counting it.
+	committed := from
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case ev, ok := <-events:
 			if !ok {
-				return
+				log.Printf("event stream closed; restarting from block %d", committed)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(resubscribeDelay):
+				}
+				ev2, err2 := network.ChaincodeEvents(ctx, chaincodeName, client.WithStartBlock(committed))
+				if err2 != nil {
+					log.Printf("resubscribe: %v", err2)
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(resubscribeDelay):
+					}
+					continue
+				}
+				events = ev2
 			}
-			if err := idx.HandleEvent(ctx, ev); err != nil {
-				log.Printf("event %s block %d tx %s: %v", ev.EventName, ev.BlockNumber, ev.TransactionID, err)
-			} else {
-				log.Printf("indexed %s block=%d tx=%s", ev.EventName, ev.BlockNumber, ev.TransactionID)
+			if err := retry(func() error { return idx.HandleEvent(ctx, ev) }); err != nil {
+				log.Printf("dropping %s block=%d tx=%s after %d attempts: %v", ev.EventName, ev.BlockNumber, ev.TransactionID, retryMax, err)
+				continue
 			}
+			if ev.BlockNumber >= committed {
+				committed = ev.BlockNumber
+			}
+			log.Printf("indexed %s block=%d tx=%s", ev.EventName, ev.BlockNumber, ev.TransactionID)
 		}
 	}
 }
 
-func connectFabric(ctx context.Context) (*client.Gateway, <-chan *client.ChaincodeEvent, error) {
+func connectFabric(ctx context.Context) (*client.Gateway, *client.Network, error) {
 	endpoint := os.Getenv("FABRIC_GATEWAY_ENDPOINT")
 	certPath := os.Getenv("FABRIC_CERT_PATH")
 	keyPath := os.Getenv("FABRIC_KEY_PATH")
@@ -336,11 +498,5 @@ func connectFabric(ctx context.Context) (*client.Gateway, <-chan *client.Chainco
 	if err != nil {
 		return nil, nil, err
 	}
-	network := gw.GetNetwork(channel)
-	events, err := network.ChaincodeEvents(ctx, chaincodeName)
-	if err != nil {
-		_ = gw.Close()
-		return nil, nil, err
-	}
-	return gw, events, nil
+	return gw, gw.GetNetwork(channel), nil
 }
