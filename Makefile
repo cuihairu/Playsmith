@@ -25,15 +25,22 @@ PROTOC_GEN_GO_GRPC_VERSION  := v1.6.2
 
 .PHONY: build test vet proto proto-install proto-check proto-doctor clean
 
+CHAINCODE_DIR := chaincode/playsmith-assets
+
 # Guarded entry points: generation drift fails before code compiles/tests.
+# build, test and vet cover both Go modules: chaincode/playsmith-assets is its
+# own module, so `./...` from the repo root does not reach it.
 build: proto-check
 	$(GO) build ./...
+	cd $(CHAINCODE_DIR) && $(GO) build ./...
 
 test: proto-check
 	$(GO) test ./...
+	cd $(CHAINCODE_DIR) && $(GO) test ./...
 
 vet:
 	$(GO) vet ./...
+	cd $(CHAINCODE_DIR) && $(GO) vet ./...
 
 # Verify protoc exists and matches PROTOC_VERSION exactly.
 proto-doctor:
