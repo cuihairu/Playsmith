@@ -12,4 +12,4 @@ JWT / gRPC（可选）
 - Export `GRPC_PORT` (e.g. `9090`) to also serve the gRPC Gateway (proto in `proto/playsmith/v1/gateway.proto`); REST and gRPC both accept `Authorization: Bearer <token>`.
 
 TLS (optional)
-- Set `TLS_CERT_PATH` and `TLS_KEY_PATH` (PEM pair) to serve REST and gRPC over TLS. If either is missing, both faces fall back to plaintext (dev only).
+- Set `TLS_CERT_PATH` and `TLS_KEY_PATH` (PEM pair) to serve REST and gRPC over TLS. Leave both unset for the plaintext development fallback. Setting exactly one of the two fails startup: a half-configured deployment used to serve bearer tokens and the signing secret in the clear.

@@ -36,7 +36,7 @@ Transactions (Chaincode)
 
 Events (JSON payloads)
 - `TransferSingle`: `{ operator, from, to, id, value }`
-- `TransferBatch`: `{ operator, from, to, ids, values }`
+- `TransferBatch`: `{ operator, from, to, tos, ids, values }` — `tos` is parallel to `ids` because a batch mint addresses many recipients; a plain batch transfer repeats the single recipient in every slot
 - `ApprovalForAll`: `{ owner, operator, approved }`
 - `URI`: `{ id, uri }`
 - `AskCreated`: `{ id, seller, listingId, amount, price, priceHash }` (public listing: no `priceHash` key; private listing: `price` emitted as `0` and `priceHash` present)
@@ -44,9 +44,12 @@ Events (JSON payloads)
 - `Trade`: `{ id, seller, buyer, listingId, amount, price, priceHash }` (public listing emits real `price`, no `priceHash` key; private listing emits `price=0` and `priceHash`)
 
 Authorization (enforced in `chaincode/playsmith-assets/main.go`)
-- MINTER: cert attribute `role=MINTER` required by `Mint`.
+- MINTER: cert attribute `role=MINTER` required by `Mint` and `BatchMint`.
 - Transfers: invoker must be owner or approved operator (`op~{owner}~{operator}` == "1").
-- Listings: seller must have at least `amount` balance.
+- Listings: the invoker must be the seller or an approved operator, and the seller must hold at least `amount` balance; `CancelListing` applies the same seller check and also requires the listing to exist.
+- Approvals: only the owner may call `SetApprovalForAll` for its own state; a third party self-authorising as operator is rejected.
+- Amounts: `Buy` caps the fill at the listed amount and leaves the remainder listed; balance and supply additions reject a result that would overflow `uint64` rather than wrapping.
+- Self-moves: `Transfer`/`Buy` where the source equals the destination keep the balance unchanged instead of reading it back through the write set.
 
 Concurrency & Idempotency
 - Use listingId = `TxID` by default. Optional external idempotency key can be implemented via `dedup~{extId}`.

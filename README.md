@@ -79,7 +79,7 @@ Implementation (`internal/auth`)
 - Platform-hosted (HS256): `POST /api/v1/auth/token` (with `X-Issue-Secret`) issues a JWT; both REST and gRPC require `Authorization: Bearer <jwt>`
 - Per-operation authorization: every authenticated call must carry a non-empty `mspId` and `role` in the JWT; `Mint`/`BatchMint` additionally require `role=MINTER` (gateway-level gate, same rule as the chaincode `requireMinter`; `internal/auth/authorize.go`)
 - Gateway Fabric identity: `FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`/`FABRIC_MSP_ID` configure the X.509 identity the gateway process submits with (every caller currently shares that one identity; per-subject identity isolation is pending, see `todo.md`); REST stays open when JWT is disabled (dev mode)
-- Transport security: with `TLS_CERT_PATH`/`TLS_KEY_PATH` (PEM cert/key) set, REST and gRPC are both served over TLS; when unset both fall back to plaintext (dev only)
+- Transport security: with `TLS_CERT_PATH`/`TLS_KEY_PATH` (PEM cert/key) set, REST and gRPC are both served over TLS; when neither is set both fall back to plaintext (dev only); setting exactly one of the two fails startup instead of silently serving bearer tokens and the signing secret in the clear
 
 REST (implemented endpoints; fields in `docs/SPEC.md` API Mapping)
 - `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}` (JWT needs `role=MINTER`)

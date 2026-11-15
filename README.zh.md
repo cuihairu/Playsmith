@@ -79,7 +79,7 @@ flowchart LR
 - 平台托管（HS256）：`POST /api/v1/auth/token`（带 `X-Issue-Secret`）签发 JWT；REST 与 gRPC 均要求 `Authorization: Bearer <jwt>`
 - 按操作授权：所有已鉴权调用要求 JWT 携带非空 `mspId` 与 `role`；`Mint`/`BatchMint` 要求 `role=MINTER`（网关层把关，与链码 `requireMinter` 同规则；`internal/auth/authorize.go`）
 - 网关 Fabric 身份：`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`/`FABRIC_MSP_ID` 配置网关进程提交交易所用的 X.509 身份（当前所有调用共用同一身份，按 subject 的身份隔离待做，见 todo.md）；JWT 未启用时 REST 保持开放（开发模式）
-- 传输安全：设 `TLS_CERT_PATH`/`TLS_KEY_PATH`（PEM 证书/私钥）时，REST 与 gRPC 均以 TLS 提供服务；未配置时回退明文（仅限开发）
+- 传输安全：设 `TLS_CERT_PATH`/`TLS_KEY_PATH`（PEM 证书/私钥）时，REST 与 gRPC 均以 TLS 提供服务；两者都未配置时回退明文（仅限开发）；只配置其中一个会启动失败，避免令牌与签发密钥明文外泄
 
 REST（已实现端点；字段详见 docs/SPEC.md API Mapping）
 - `POST /api/v1/assets/mint` body: `{tokenId, to, uri, amount}`（JWT 需 `role=MINTER`）

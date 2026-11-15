@@ -15,7 +15,7 @@ is no configuration file to edit, and nothing is persisted by the application.
 | `FABRIC_CHANNEL_NAME` | Channel the transactions are submitted to | `cmd/api/main.go:235` |
 | `JWT_SECRET` | When set (≥32 bytes) JWT auth is on; also the secret `POST /api/v1/auth/token` checks against | `cmd/api/main.go:250` |
 | `GRPC_PORT` | Starts the gRPC listener; refuses to start unless `JWT_SECRET` is set | `cmd/api/main.go:258` |
-| `TLS_CERT_PATH` | REST/gRPC served over TLS when **both** this and `TLS_KEY_PATH` are set | `cmd/api/main.go:269`, `:464` |
+| `TLS_CERT_PATH` | REST/gRPC served over TLS when **both** this and `TLS_KEY_PATH` are set; setting exactly one of the two now fails startup instead of falling back to plaintext | `cmd/api/main.go:275`, `:473` |
 | `TLS_KEY_PATH` | Same pair as above; a half-configured pair falls back to plaintext | `cmd/api/main.go:269`, `:464` |
 | `PORT` | HTTP listen port, default `8080` | `cmd/api/main.go:246-249` |
 
