@@ -1,8 +1,16 @@
 import { defineConfig } from "vitepress";
+import { redirectSnippet } from "./redirect.mjs";
+
+// published as a GitHub project page: cuihairu.github.io/Playsmith/
+// The redirect snippet interpolates the same value, so it cannot drift from
+// the deployed base.
+const base = "/Playsmith/";
 
 export default defineConfig({
-  // published as a GitHub project page: cuihairu.github.io/Playsmith/
-  base: "/Playsmith/",
+  base,
+  // First visit only: a zh* browser lands on an English page once, then the
+  // manual locale switch is the single source of truth (see redirect.mjs).
+  head: [["script", {}, redirectSnippet(base)]],
   // The consistency-audit ledger is a working record (round counts, commit
   // hashes, findings) rather than navigable site content.
   srcExclude: ["审计-文档一致性.md"],
