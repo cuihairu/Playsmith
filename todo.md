@@ -108,3 +108,9 @@
   - 证据：`docs/.vitepress/redirect.mjs` `redirectSnippet(base)` 产出内联脚本（`navigator.language` 以 `zh` 开头且当前页不在 `/zh/` 下时 `location.replace` 到同路径 `/zh/` 孪生页，保留 query/hash；带扩展名的资源路径与 base 外路径不动；`localStorage['ps-locale']` 一次性标记使自动跳转只在首访发生，之后手动切换是唯一语言来源——自动跳转不再与用户后续的手动选择打架）；`docs/.vitepress/config.mts` 经 `head` 注入，base 以同一常量插值不漂移；`docs/.vitepress/redirect.test.mjs` 以 node:vm 跑产物字符串本身 10 例（zh/zh-TW 首访跳转、已在 zh 不跳、en 不跳、二访不跳且标记不再覆写、资源路径不跳、根页跳转、query+hash 保留、base 外不跳、隐私模式无 localStorage 不抛不跳）。门禁：`pnpm --filter @playsmith/docs test` 10/10 绿、`pnpm --filter @playsmith/docs build` 绿且 12 个产物 HTML 全含该脚本（对构建压缩后的产物原文再跑 4 例沙箱验证均正确）、pages workflow 构建前先跑 test、`make test` 双模块绿。commit `c860313`。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
+
+## 依赖公告（2026-11-21，dependabot 推送时上报）
+
+- [Blocked] 文档站 dev 工具链 9 条公告（vite ×8、esbuild ×1；1 high / 7 medium / 1 low）——全部只影响 `pnpm dev` 开发服务器，`vitepress build` 的静态 HTML 产物不含受影响代码。
+  - 现状：`docs/package.json` 锁 `vitepress@^1.6.4`（1.6.4 即 npm 的 `latest`），传递依赖锁定 `vite@5.4.21`、`esbuild@0.21.5`；vite 5.x 线最新即为 5.4.21，已无 5.x 线内的修复版，6.x/7.x/8.x 各线才有补丁。
+  - BLOCKED 缺什么：需升 vitepress 2.x 才能带上 vite ≥6，属文档站主版本升级，而 npm `latest` 标签尚不指向 2.x，可能牵动文档站构建与 Pages 部署面；不擅自升主版本。公告清单：https://github.com/cuihairu/Playsmith/security/dependabot （2026-11-21 查询到 9 条 open）。
