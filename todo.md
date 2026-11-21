@@ -63,9 +63,9 @@
 - `internal/sdk/fabric.go:1` 与 `internal/sdk/gateway.go:1` 以文件名区分客户端抽象与实现，但同包内语义分组不明显；后续引入多后端时应将接口/错误与各实现分成稳定包边界。
 
 - [x] 审核发现：`build`、`test` 均未依赖 `proto-check` 且仓库没有自动执行该检查的配置，生成文件被手改或 proto 未重新生成时正常构建仍会成功，禁改守卫无法生效（Makefile:23）。
-  - 证据：`Makefile:29`/`Makefile:32`（`build: proto-check`、`test: proto-check`，守卫先于编译/测试）；负测试：手工篡改 `gen/gateway.pb.go` 后 `make test` 在守卫阶段即报 `ERROR: gateway.pb.go is out of date` 并失败（退出码 2），还原后通过；`make build` 同样先跑守卫；`go build ./...`/`go vet ./...`/`make proto-check`/`go test ./...` 全绿（commit `2e92e6c`，2026-11-09）。
+  - 证据：`Makefile:33`/`Makefile:37`（`build: proto-check`、`test: proto-check`，守卫先于编译/测试）；负测试：手工篡改 `gen/gateway.pb.go` 后 `make test` 在守卫阶段即报 `ERROR: gateway.pb.go is out of date` 并失败（退出码 2），还原后通过；`make build` 同样先跑守卫；`go build ./...`/`go vet ./...`/`make proto-check`/`go test ./...` 全绿（commit `2e92e6c`，2026-11-09）。
 - [x] 审核发现：生成检查逐字比较含 protoc 版本号的生成文件，但 `proto-install` 只固定插件版本而未安装或校验 protoc 版本，使用其他版本 protoc 时即使协议未变也会错误报生成物过期（Makefile:40）。
-  - 证据：`Makefile:22`（`PROTOC_VERSION := 3.21.12` 固定）、`Makefile:39-49`（`proto-doctor` 校验 protoc 存在且版本精确匹配）；`proto`/`proto-check`/`proto-install` 均先过 `proto-doctor`；负测试：`make proto-check PROTOC_VERSION=9.9.9` 报 `ERROR: protoc version mismatch: found 3.21.12, need 9.9.9`（不再误报"生成物过期"）、`PROTOC=/nonexistent` 报 not found、`make proto PROTOC_VERSION=9.9.9` 拒绝再生成；全绿（commit `2e92e6c`，2026-11-09）。
+  - 证据：`Makefile:22`（`PROTOC_VERSION := 3.21.12` 固定）、`Makefile:46-56`（`proto-doctor` 校验 protoc 存在且版本精确匹配）；`proto`/`proto-check`/`proto-install` 均先过 `proto-doctor`；负测试：`make proto-check PROTOC_VERSION=9.9.9` 报 `ERROR: protoc version mismatch: found 3.21.12, need 9.9.9`（不再误报"生成物过期"）、`PROTOC=/nonexistent` 报 not found、`make proto PROTOC_VERSION=9.9.9` 拒绝再生成；全绿（commit `2e92e6c`，2026-11-09）。
 - [ ] 审核发现：`Authorize` 仅校验可签发的 JWT 角色并用共享 Fabric MINTER 证书提交 Mint/BatchMint，未把 JWT subject/mspId 绑定到独立链上身份，身份越权风险未闭环（internal/auth/authorize.go:26）。
   - BLOCKED 缺什么：与第 77 行 Codex `[Critical-BLOCKED]` 为同一问题（先后两次登记）。需 (a) Fabric CA 为每个游戏服单独签发 X.509 并下发公钥；(b) 私钥托管/轮换机制（Vault/KMS），按 subject/mspId 选择签名身份；(c) 多 MSP 真实测试环境覆盖跨身份隔离用例。三者均不在仓内可修范围，详见第 77 行，不重复展开。
   - 仓库内已落地的部分（见第 79 行）：`JWT_IDENTITY_MAP` 绑定门禁（commit `a658533`、`1ffd41c`）已决定「哪些主体有资格行动/可被签发令牌」，但从不把 subject/mspId 映射到独立链上身份——进程内仍只有一个签名证书。故本项仍不勾选。

@@ -8,14 +8,14 @@ deploys that directory as chaincode.
 
 | Target | Does | Evidence |
 |---|---|---|
-| `make build` | Runs the generated-code guard, then `go build ./...` | `Makefile:29` |
-| `make test` | Runs the guard, then `go test ./...` | `Makefile:32` |
-| `make vet` | `go vet ./...` | `Makefile:35` |
-| `make proto` | Regenerates the gateway bindings from `proto/playsmith/v1/gateway.proto` | `Makefile:52` |
-| `make proto-install` | Installs the pinned plugins, then verifies the toolchain | `Makefile:59` |
-| `make proto-check` | Fails if committed generated code drifts from a fresh generation | `Makefile:67` |
-| `make proto-doctor` | Checks `protoc` exists and matches the pinned version exactly | `Makefile:39` |
-| `make clean` | `go clean ./...` | `Makefile:85` |
+| `make build` | Runs the generated-code guard, then `go build ./...` | `Makefile:33` |
+| `make test` | Runs the guard, then `go test ./...` | `Makefile:37` |
+| `make vet` | `go vet ./...` | `Makefile:41` |
+| `make proto` | Regenerates the gateway bindings from `proto/playsmith/v1/gateway.proto` | `Makefile:59` |
+| `make proto-install` | Installs the pinned plugins, then verifies the toolchain | `Makefile:66` |
+| `make proto-check` | Fails if committed generated code drifts from a fresh generation | `Makefile:74` |
+| `make proto-doctor` | Checks `protoc` exists and matches the pinned version exactly | `Makefile:46` |
+| `make clean` | `go clean ./...` | `Makefile:92` |
 
 The guard is the important part. `make build` and `make test` both depend on
 `proto-check`, which regenerates the two protobuf files into a temporary

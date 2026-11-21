@@ -41,11 +41,13 @@ def doc_files():
 # `path:line` or `path:start-end` where path starts with a ./ or ../ relative
 # link or a repo path. Both endpoints of a range are captured so each can be
 # validated; a range whose end is missing (`path:NN-`) is caught by MALFORMED.
-CITE = re.compile(r"\b((?:\.\./)?[A-Za-z0-9_\-./]+(?:\.go|\.proto|\.json|\.mod|\.sum|\.md|\.mts|\.mjs|\.html)):(\d+)(?:-(\d+))?")
+# The path may carry a file extension or be the extensionless `Makefile`
+# (checked because its target lines are cited by the build docs).
+CITE = re.compile(r"\b((?:\.\./)?[A-Za-z0-9_\-./]+\.(?:go|proto|json|mod|sum|md|mts|mjs|html)|Makefile):(\d+)(?:-(\d+))?")
 
 # `path:NN-` not followed by a digit: a truncated range like `main.go:248-`
 # otherwise passes silently because CITE still matches `:248`.
-MALFORMED = re.compile(r"\.(?:go|proto|json|mod|sum|md|mts|mjs|html):\d+-(?!\d)")
+MALFORMED = re.compile(r"(?:\.(?:go|proto|json|mod|sum|md|mts|mjs|html)|Makefile):\d+-(?!\d)")
 
 # Only SCREAMING_SNAKE environment variables are unambiguous enough to assert
 # against: a prose word or a path component can never spell them. Other

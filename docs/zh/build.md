@@ -7,14 +7,14 @@
 
 | 目标 | 作用 | 依据 |
 |---|---|---|
-| `make build` | 先跑生成物禁改守卫，再 `go build ./...` | `Makefile:29` |
-| `make test` | 先跑守卫，再 `go test ./...` | `Makefile:32` |
-| `make vet` | `go vet ./...` | `Makefile:35` |
-| `make proto` | 从 `proto/playsmith/v1/gateway.proto` 重新生成网关绑定 | `Makefile:52` |
-| `make proto-install` | 安装钉死的插件版本，然后校验工具链 | `Makefile:59` |
-| `make proto-check` | 已提交的生成物与一次全新生成不一致即失败 | `Makefile:67` |
-| `make proto-doctor` | 检查 `protoc` 存在且版本与钉定值精确匹配 | `Makefile:39` |
-| `make clean` | `go clean ./...` | `Makefile:85` |
+| `make build` | 先跑生成物禁改守卫，再 `go build ./...` | `Makefile:33` |
+| `make test` | 先跑守卫，再 `go test ./...` | `Makefile:37` |
+| `make vet` | `go vet ./...` | `Makefile:41` |
+| `make proto` | 从 `proto/playsmith/v1/gateway.proto` 重新生成网关绑定 | `Makefile:59` |
+| `make proto-install` | 安装钉死的插件版本，然后校验工具链 | `Makefile:66` |
+| `make proto-check` | 已提交的生成物与一次全新生成不一致即失败 | `Makefile:74` |
+| `make proto-doctor` | 检查 `protoc` 存在且版本与钉定值精确匹配 | `Makefile:46` |
+| `make clean` | `go clean ./...` | `Makefile:92` |
 
 守卫是关键。`make build` 与 `make test` 都依赖 `proto-check`：它把两个 protobuf
 文件重新生成到临时目录，再与 `internal/gatewaypb/gen` 逐字节比较。手工改动生成
