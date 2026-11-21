@@ -38,8 +38,14 @@ def doc_files():
     out += [str(p.relative_to(ROOT)) for p in ROOT.glob("README*.md")]
     return [d for d in out if d not in EXCLUDE and ".vitepress/dist" not in d]
 
-# `path:line` where path starts with a ./ or ../ relative link or a repo path.
-CITE = re.compile(r"\b((?:\.\./)?[A-Za-z0-9_\-./]+(?:\.go|\.proto|\.json|\.mod|\.sum|\.md|\.mts|\.mjs|\.html)):(\d+)")
+# `path:line` or `path:start-end` where path starts with a ./ or ../ relative
+# link or a repo path. Both endpoints of a range are captured so each can be
+# validated; a range whose end is missing (`path:NN-`) is caught by MALFORMED.
+CITE = re.compile(r"\b((?:\.\./)?[A-Za-z0-9_\-./]+(?:\.go|\.proto|\.json|\.mod|\.sum|\.md|\.mts|\.mjs|\.html)):(\d+)(?:-(\d+))?")
+
+# `path:NN-` not followed by a digit: a truncated range like `main.go:248-`
+# otherwise passes silently because CITE still matches `:248`.
+MALFORMED = re.compile(r"\.(?:go|proto|json|mod|sum|md|mts|mjs|html):\d+-(?!\d)")
 
 # Only SCREAMING_SNAKE environment variables are unambiguous enough to assert
 # against: a prose word or a path component can never spell them. Other
@@ -121,36 +127,40 @@ def main():
         text = (ROOT / doc).read_text(encoding="utf-8")
         lines = text.splitlines()
         for ln, line in enumerate(lines, 1):
-            cites = [(m.group(1), int(m.group(2))) for m in CITE.finditer(line)]
+            cites = [(m.group(1), int(m.group(2)), m.group(3)) for m in CITE.finditer(line)]
             if not cites:
                 continue
+            if MALFORMED.search(line):
+                problems.append(f"{doc}:{ln} has a truncated range (`path:NN-`)")
+                drift += 1
             env = {m.group(1) for m in ENV.finditer(line)}
-            bases = {resolve(rel) for rel, _ in cites}
+            bases = {resolve(rel) for rel, _, _ in cites}
             # Assert identifiers only when every citation on the line points
             # into one file, so a paragraph citing several files cannot get
             # its identifiers matched against the wrong one.
             assert_env = env and None not in bases and len(bases) == 1
             windows = []
-            for rel, num in cites:
+            for rel, num, end in cites:
                 base = resolve(rel)
                 if base is None:
                     continue
                 src = read_lines(base)
                 if src is None:
                     continue
-                if num < 1 or num > len(src):
-                    problems.append(f"{doc}:{ln} cites {rel}:{num} but that file has {len(src)} lines")
-                    drift += 1
-                    continue
-                checked += 1
-                if base == "todo.md" and not TODO_ANCHOR.match(src[num - 1]):
-                    problems.append(
-                        f"{doc}:{ln} cites {rel}:{num} but todo.md line {num} is not a list item"
-                    )
-                    drift += 1
-                    continue
-                lo, hi = max(1, num - WINDOW), min(len(src), num + WINDOW)
-                windows.append("\n".join(src[lo - 1:hi]))
+                for n in [num] if end is None else [num, int(end)]:
+                    if n < 1 or n > len(src):
+                        problems.append(f"{doc}:{ln} cites {rel}:{n} but that file has {len(src)} lines")
+                        drift += 1
+                        continue
+                    checked += 1
+                    if base == "todo.md" and not TODO_ANCHOR.match(src[n - 1]):
+                        problems.append(
+                            f"{doc}:{ln} cites {rel}:{n} but todo.md line {n} is not a list item"
+                        )
+                        drift += 1
+                        continue
+                    lo, hi = max(1, n - WINDOW), min(len(src), n + WINDOW)
+                    windows.append("\n".join(src[lo - 1:hi]))
             if assert_env and windows:
                 for ident in sorted(env):
                     if not any(ident in w for w in windows):
