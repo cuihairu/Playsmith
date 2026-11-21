@@ -118,6 +118,8 @@
   - 证据：`grep -rn "fabric.go:[0-9]" docs/*.md` 全部与源码实际行号一致（`Client` 在 `:7`、`NoopClient` 在 `:17`）；`docs` 测试 11/11 绿、`pnpm --filter @playsmith/docs build` 绿（114.81s，页面无回归）。commit `c02f744`。
 - [x] 既然上面那次编辑就制造了一处行号漂移，说明文档里 `file:line` 引用需要系统核验：对 14 个文档文件提取全部 `路径:行号` 引用与源码实际比对（引用行必须存在；文档就近写明标识符时，该标识符须落在引用行 ±3 行窗口内）。
   - 证据：222 处引用全部通过，**0 处漂移**（唯一两例即上面已修的 `fabric.go:13→17`）；另有 7 处 `../<path>:<line>` 为 `docs/` 源码根下的跨树证据链接（正是 `config.mts` 的 `ignoreDeadLinks: [/^(\.\/)?\.\.\//]` 豁免的那类），按 `docs/` 相对路径逐一确认文件均存在。校验脚本为一次性临时脚本（`/tmp`，未入库）。
+- [x] 环境变量口径双向核验：`docs/configuration.md` 声称覆盖全部 env 读取行号，故对「代码 `os.Getenv` 实际读取」与「文档列出」做双向比对。
+  - 证据：代码侧（排除生成物）共 12 个 `os.Getenv` 变量——`FABRIC_CERT_PATH`、`FABRIC_CHANNEL_NAME`、`FABRIC_GATEWAY_ENDPOINT`、`FABRIC_KEY_PATH`、`FABRIC_MSP_ID`、`FABRIC_TLS_PATH`、`GRPC_PORT`、`JWT_SECRET`、`PORT`、`POSTGRES_DSN`、`TLS_CERT_PATH`、`TLS_KEY_PATH`，**全部在文档中列出**；反向，文档 env 表中 11 个带下划线的变量（`PORT` 因长度被过滤条件排除，已单独确认有文档）**全部在代码中被读取**。无未文档化的隐式配置，无文档化的幽灵变量。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
