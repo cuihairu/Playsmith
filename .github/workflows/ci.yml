@@ -12,6 +12,9 @@ on:
       - 'internal/**'
       - 'cmd/**'
       - 'chaincode/**'
+      - 'docs/**'
+      - 'README*.md'
+      - 'tools/**'
       - '.github/workflows/ci.yml'
   pull_request:
   workflow_dispatch:
@@ -44,3 +47,8 @@ jobs:
         run: make vet
       - name: Test
         run: make test
+      # docs cite sources by exact path:line; this fails when a cited line is
+      # out of range or an env var named on the line is absent from every
+      # +/-5 window around the line's citations.
+      - name: Doc citations
+        run: python3 tools/check_citations.py

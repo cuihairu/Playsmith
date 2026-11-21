@@ -25,28 +25,28 @@
 部署前需要知道的两个注意点：
 
 - **Fabric 身份是共享的。** 启动时只构造一个 `GatewayClient`，所有调用方都经它
-  提交（`cmd/api/main.go:243`）。设置了 `JWT_IDENTITY_MAP` 时，它会拦截哪些
-  校验通过的主体有资格行动，但映射本身从不挑选不同的证书：按主体选择签名身份
-  仍未落地，缺口登记在 `todo.md:76`。
+  提交（`cmd/api/main.go:243`）。
+  设置了 `JWT_IDENTITY_MAP` 时，它会拦截哪些校验通过的主体有资格行动，但映射
+  本身从不挑选不同的证书：按主体选择签名身份仍未落地，缺口登记在 `todo.md:76`。
 - **TLS 是全有或全无。** 只有证书/私钥成对齐全时两面才启用 TLS；少配一边就走
   明文，只允许出现在开发环境。
 
 `X-Issue-Secret` 是请求头而非环境变量：签发令牌时必须与 `JWT_SECRET` 相同
-（`cmd/api/main.go:324-333`）。
+（`cmd/api/main.go:252`、`cmd/api/main.go:324-333`）。
 
 ## 索引器（`cmd/indexer`）
 
 | 变量 | 作用 | 读取位置 |
 |---|---|---|
-| `POSTGRES_DSN` | 必填。缺失则启动失败 | `cmd/indexer/main.go:251` |
-| `FABRIC_GATEWAY_ENDPOINT` | 事件流使用的 Fabric 端点 | `cmd/indexer/main.go:290` |
-| `FABRIC_CERT_PATH` | 身份证书 | `cmd/indexer/main.go:291` |
-| `FABRIC_KEY_PATH` | 身份私钥 | `cmd/indexer/main.go:292` |
-| `FABRIC_TLS_PATH` | Gateway TLS 材料 | `cmd/indexer/main.go:293` |
-| `FABRIC_CHANNEL_NAME` | 订阅的通道 | `cmd/indexer/main.go:294` |
-| `FABRIC_MSP_ID` | 订阅身份的 MSP | `cmd/indexer/main.go:295` |
+| `POSTGRES_DSN` | 必填。缺失则启动失败 | `cmd/indexer/main.go:380` |
+| `FABRIC_GATEWAY_ENDPOINT` | 事件流使用的 Fabric 端点 | `cmd/indexer/main.go:452` |
+| `FABRIC_CERT_PATH` | 身份证书 | `cmd/indexer/main.go:453` |
+| `FABRIC_KEY_PATH` | 身份私钥 | `cmd/indexer/main.go:454` |
+| `FABRIC_TLS_PATH` | Gateway TLS 材料 | `cmd/indexer/main.go:455` |
+| `FABRIC_CHANNEL_NAME` | 订阅的通道 | `cmd/indexer/main.go:456` |
+| `FABRIC_MSP_ID` | 订阅身份的 MSP | `cmd/indexer/main.go:457` |
 
-投影 schema 是启动时幂等执行的内嵌 DDL（`cmd/indexer/main.go:21`），没有独立
+投影 schema 是启动时幂等执行的内嵌 DDL（`cmd/indexer/main.go:30`），没有独立
 迁移文件。
 
 ## 部署契约
