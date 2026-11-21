@@ -1,7 +1,7 @@
 # 功能与路由
 
-本页只列真实存在的路由。REST 表取自网关路由表 `cmd/api/main.go:303-317`，
-所有路由都包在鉴权中间件里；请求字段名是 `cmd/api/main.go:34-88` 那组 struct 的
+本页只列真实存在的路由。REST 表取自网关路由表 `cmd/api/main.go:295-306`，
+所有路由都包在鉴权中间件里；请求字段名是 `cmd/api/main.go:35-88` 那组 struct 的
 JSON tag。
 
 ## REST 路由

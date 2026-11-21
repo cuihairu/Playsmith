@@ -1,9 +1,9 @@
 # Features and Routes
 
 This page lists the routes that actually exist. The REST table is taken from the
-gateway router at `cmd/api/main.go:303-317`, where every route is wrapped in the
+gateway router at `cmd/api/main.go:295-306`, where every route is wrapped in the
 auth middleware. Request field names are the JSON tags of the structs at
-`cmd/api/main.go:34-88`.
+`cmd/api/main.go:35-88`.
 
 ## REST routes
 
