@@ -142,6 +142,9 @@
   - 线上复核（2026-11-21，deploy 自 `852ed83`）：`/Playsmith/configuration` 与 `/zh/configuration` 已部署 HTML 均含 `cmd/indexer/main.go:380` 各 1 处、旧 `:251` 引用 0 处、`todo.md:77` 指针各 1 处；`/glossary` 含 `:380` 1 处、旧 `:251` 0 处；`/architecture` 含 `todo.md:77` 1 处、旧 `:251` 0 处（该页不引用 `:380`，0 属预期）。ci run 44872666858 日志可见 `Doc citations` 步骤执行 `python3 tools/check_citations.py` 输出 `citations checked: 243, proven drift: 0`——新增门禁已在 CI 真实生效，非仅本地绿。
   - 加固（commit `d844648`）：堵上本轮亲手暴露的盲区——todo.md 在 EXCLUDE 里不校验内容，但文档仍以 `todo.md:NN` 精确指向它，`852ed83` 修掉的 7 处错行指针正是门禁看不见的那类。新增窄断言：指向 todo.md 的引用必须落在列表项（`^\s*-`）行上，命中标题/空行/其他段落散文即硬失败。负测试：临时引用 `todo.md:1`（标题行）确认触发 DRIFT 退出 1，还原后 `citations checked: 243, proven drift: 0` 退出 0；`make test` 双模块绿。
 
+- [x] 环境变量口径双向门禁：代码 `os.Getenv` 实读 ↔ 配置表列出（`todo.md` 第 128-129 行的一次性人工核验转常驻门禁，防止该核验静默失效——教训同引用门禁行）。`tools/check_citations.py` 扩展：非生成物、非 `_test.go` 的全部 `.go` 中 `os.Getenv("SCREAMING_SNAKE")` 字面量，必须在 `docs/configuration.md` 与 `docs/zh/configuration.md` 两表各有行；反向，表行变量必须被代码实读。
+  - 证据：13 个实读变量 = 两表各 13 行，0 错配。负测试双向：临时删 en 表 `PORT` 行 → `PORT is read by code but has no row` 退出 1；临时加 `GHOST_VAR` 行 → `documents GHOST_VAR but the code never reads it` 退出 1；还原后 `13 code vars / 13+13 rows, mismatches: 0` 退出 0。第 129 行记载「共 12 个」已因本轮前新增 `JWT_IDENTITY_MAP` 过时成 13——人工核验会静默过时，正是本门禁存在的理由。commit `f214d00`。
+
 ## 依赖公告（2026-11-21，dependabot 推送时上报）
 
 - [Blocked] 文档站 dev 工具链 9 条公告（vite ×8、esbuild ×1；1 high / 7 medium / 1 low）——全部只影响 `pnpm dev` 开发服务器，`vitepress build` 的静态 HTML 产物不含受影响代码。
