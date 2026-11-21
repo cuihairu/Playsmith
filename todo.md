@@ -35,7 +35,7 @@
 
 - [x] 审核发现：JWT 的 subject、MSP 和 role 未绑定到 Fabric 身份或按操作授权，所有持有效令牌的调用均使用同一配置证书，导致不同游戏服可共享其链上权限且无法按自身身份交易（cmd/api/main.go:353）。
   - 证据（按操作授权臂已修）：`internal/auth/authorize.go` `Claims.Authorize`（所有已鉴权调用要求非空 mspId+role；`Mint`/`BatchMint` 要求 `role=MINTER`，对齐 SPEC Authorization 与链码 `requireMinter`）；`cmd/api/main.go` REST `authMiddleware` 与 gRPC `grpcAuthUnaryInterceptor` 均调用 `Authorize`（经 `gatewayOperation`/`operationFromFullMethod` 映射操作）；测试 `TestAuthMiddlewareDeniesNonMinterMint`（PLAYER→Mint→403）、`TestAuthMiddlewareAllowsMinterMint`（MINTER→Mint→200）、`TestAuthMiddlewareRequiresIdentity`（空 mspId/role→403）、`TestGRPCAuthInterceptorDeniesNonMinterMint`（PLAYER→Mint→PermissionDenied）、`TestGRPCAuthInterceptorQueryNeedsIdentity`、`TestAuthorizeMinterGate` 等通过（`go test ./...`，2026-11-09）。
-  - 绑定每游戏服 Fabric 身份臂仍 BLOCKED：需真实机器/凭据（Fabric CA 为每游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证，未修。本行 `[x]` 仅覆盖按操作授权臂；身份隔离臂单独重登为 `- [Critical-BLOCKED] JWT 身份隔离仍未闭环`（现 `todo.md:75`，2026-11-13 codex 审），不在本行口径内。按操作授权臂的证据 SHA：`5f0c8be`（`Claims.Authorize` 门禁）；链码侧对应的角色/卖家/owner 门禁在本轮 `e922b90` 补齐。
+  - 绑定每游戏服 Fabric 身份臂仍 BLOCKED：需真实机器/凭据（Fabric CA 为每游戏服颁发 X.509 证书 + 私钥托管），无法在仓内验证，未修。本行 `[x]` 仅覆盖按操作授权臂；身份隔离臂单独重登为 `- [Critical-BLOCKED] JWT 身份隔离仍未闭环`（现 `todo.md:77`，2026-11-13 codex 审），不在本行口径内。按操作授权臂的证据 SHA：`5f0c8be`（`Claims.Authorize` 门禁）；链码侧对应的角色/卖家/owner 门禁在本轮 `e922b90` 补齐。
 - [x] 审核发现：HTTP 和 gRPC 均监听明文连接，直接部署时签发密钥及 bearer token 会在网络中明文传输，泄露后可伪造令牌或冒用调用者（cmd/api/main.go:336）。
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；两者都未配置时回退明文（开发模式）；**只配置其中一个会启动失败**（`tlsConfig()`，`cmd/api/main.go:481`；commit `f766404`，测试 `TestTLSConfigRejectsHalfConfiguration`）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:45）。
@@ -67,8 +67,8 @@
 - [x] 审核发现：生成检查逐字比较含 protoc 版本号的生成文件，但 `proto-install` 只固定插件版本而未安装或校验 protoc 版本，使用其他版本 protoc 时即使协议未变也会错误报生成物过期（Makefile:40）。
   - 证据：`Makefile:22`（`PROTOC_VERSION := 3.21.12` 固定）、`Makefile:39-49`（`proto-doctor` 校验 protoc 存在且版本精确匹配）；`proto`/`proto-check`/`proto-install` 均先过 `proto-doctor`；负测试：`make proto-check PROTOC_VERSION=9.9.9` 报 `ERROR: protoc version mismatch: found 3.21.12, need 9.9.9`（不再误报"生成物过期"）、`PROTOC=/nonexistent` 报 not found、`make proto PROTOC_VERSION=9.9.9` 拒绝再生成；全绿（commit `2e92e6c`，2026-11-09）。
 - [ ] 审核发现：`Authorize` 仅校验可签发的 JWT 角色并用共享 Fabric MINTER 证书提交 Mint/BatchMint，未把 JWT subject/mspId 绑定到独立链上身份，身份越权风险未闭环（internal/auth/authorize.go:26）。
-  - BLOCKED 缺什么：与第 76 行 Codex `[Critical-BLOCKED]` 为同一问题（先后两次登记）。需 (a) Fabric CA 为每个游戏服单独签发 X.509 并下发公钥；(b) 私钥托管/轮换机制（Vault/KMS），按 subject/mspId 选择签名身份；(c) 多 MSP 真实测试环境覆盖跨身份隔离用例。三者均不在仓内可修范围，详见第 76 行，不重复展开。
-  - 仓库内已落地的部分（见第 78 行）：`JWT_IDENTITY_MAP` 绑定门禁（commit `a658533`、`1ffd41c`）已决定「哪些主体有资格行动/可被签发令牌」，但从不把 subject/mspId 映射到独立链上身份——进程内仍只有一个签名证书。故本项仍不勾选。
+  - BLOCKED 缺什么：与第 77 行 Codex `[Critical-BLOCKED]` 为同一问题（先后两次登记）。需 (a) Fabric CA 为每个游戏服单独签发 X.509 并下发公钥；(b) 私钥托管/轮换机制（Vault/KMS），按 subject/mspId 选择签名身份；(c) 多 MSP 真实测试环境覆盖跨身份隔离用例。三者均不在仓内可修范围，详见第 77 行，不重复展开。
+  - 仓库内已落地的部分（见第 79 行）：`JWT_IDENTITY_MAP` 绑定门禁（commit `a658533`、`1ffd41c`）已决定「哪些主体有资格行动/可被签发令牌」，但从不把 subject/mspId 映射到独立链上身份——进程内仍只有一个签名证书。故本项仍不勾选。
 
 ## Codex 深审发现（2026-11-13，luna profile 近5 commit 审核；已修 13/14，余 1 条 BLOCKED 见下）
 
@@ -128,7 +128,7 @@
 - [x] 环境变量口径双向核验：`docs/configuration.md` 声称覆盖全部 env 读取行号，故对「代码 `os.Getenv` 实际读取」与「文档列出」做双向比对。
   - 证据：代码侧（排除生成物）共 12 个 `os.Getenv` 变量——`FABRIC_CERT_PATH`、`FABRIC_CHANNEL_NAME`、`FABRIC_GATEWAY_ENDPOINT`、`FABRIC_KEY_PATH`、`FABRIC_MSP_ID`、`FABRIC_TLS_PATH`、`GRPC_PORT`、`JWT_SECRET`、`PORT`、`POSTGRES_DSN`、`TLS_CERT_PATH`、`TLS_KEY_PATH`，**全部在文档中列出**；反向，文档 env 表中 11 个带下划线的变量（`PORT` 因长度被过滤条件排除，已单独确认有文档）**全部在代码中被读取**。无未文档化的隐式配置，无文档化的幽灵变量。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
-  - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
+  - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 77 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
 ## CI 门禁（2026-11-21，补 Go 侧 CI）
 

@@ -28,7 +28,7 @@ Two caveats worth knowing before you deploy:
   and every caller submits through it (`cmd/api/main.go:243`).
   `JWT_IDENTITY_MAP`, when set, gates which validated subjects may act at all,
   but the mapping never selects a different certificate: per-identity signing
-  identity stays open, and `todo.md:76` tracks that gap.
+  identity stays open, and `todo.md:77` tracks that gap.
 - **TLS is all-or-nothing.** Only a complete certificate/key pair enables TLS on
   both faces; leaving one side unset serves plaintext, which is only acceptable
   in development.
