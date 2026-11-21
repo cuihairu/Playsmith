@@ -44,6 +44,12 @@ ENV = re.compile(r"`\b((?:JWT|FABRIC|TLS|POSTGRES|GRPC)_[A-Z_]+|PORT)\b`")
 WINDOW = 5
 seen_cache = {}
 
+# todo.md is excluded as a *document* (it records positions as observed at audit
+# time), but docs still point into it at exact lines, e.g. "the gap is tracked at
+# todo.md:77". Such a pointer must land on a list item: hitting a heading, a
+# blank line or another section's prose silently breaks it.
+TODO_ANCHOR = re.compile(r"^\s*-")
+
 
 def read_lines(rel):
     if rel in seen_cache:
@@ -98,6 +104,12 @@ def main():
                     drift += 1
                     continue
                 checked += 1
+                if base == "todo.md" and not TODO_ANCHOR.match(src[num - 1]):
+                    problems.append(
+                        f"{doc}:{ln} cites {rel}:{num} but todo.md line {num} is not a list item"
+                    )
+                    drift += 1
+                    continue
                 lo, hi = max(1, num - WINDOW), min(len(src), num + WINDOW)
                 windows.append("\n".join(src[lo - 1:hi]))
             if assert_env and windows:
