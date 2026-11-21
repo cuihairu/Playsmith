@@ -29,6 +29,7 @@ type Server struct {
 	Fabric      sdk.Client
 	JWTManager  *auth.Manager
 	issueSecret []byte
+	identityMap *auth.IdentityRegistry
 }
 
 type MintReq struct {
@@ -255,13 +256,18 @@ func main() {
 		}
 		s.JWTManager = manager
 		s.issueSecret = []byte(os.Getenv("JWT_SECRET"))
+		registry, err := auth.ParseIdentityMap(os.Getenv("JWT_IDENTITY_MAP"))
+		if err != nil {
+			log.Fatalf("JWT identity map: %v", err)
+		}
+		s.identityMap = registry
 	}
 	if v := os.Getenv("GRPC_PORT"); v != "" {
 		if s.JWTManager == nil {
 			log.Fatal("GRPC_PORT requires JWT_SECRET")
 		}
 		go func() {
-			if err := serveGRPC(":"+v, s.Fabric, s.JWTManager); err != nil {
+			if err := serveGRPC(":"+v, s.Fabric, s.JWTManager, s.identityMap); err != nil {
 				log.Fatalf("gRPC server: %v", err)
 			}
 		}()
@@ -346,6 +352,12 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
+		// Enforce the trusted subject mapping when one is configured
+		// (JWT_IDENTITY_MAP); a nil registry enforces nothing.
+		if err := s.identityMap.Check(claims); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -386,12 +398,12 @@ func operationFromFullMethod(fullMethod string) string {
 	return fullMethod
 }
 
-func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager) error {
+func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager, registry *auth.IdentityRegistry) error {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return err
 	}
-	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcAuthUnaryInterceptor(manager))}
+	opts := []grpc.ServerOption{grpc.ChainUnaryInterceptor(grpcAuthUnaryInterceptor(manager, registry))}
 	certFile, keyFile, err := tlsConfig()
 	if err != nil {
 		return err
@@ -409,7 +421,7 @@ func serveGRPC(addr string, fabric sdk.Client, manager *auth.Manager) error {
 	return server.Serve(listener)
 }
 
-func grpcAuthUnaryInterceptor(manager *auth.Manager) grpc.UnaryServerInterceptor {
+func grpcAuthUnaryInterceptor(manager *auth.Manager, registry *auth.IdentityRegistry) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
@@ -428,6 +440,11 @@ func grpcAuthUnaryInterceptor(manager *auth.Manager) grpc.UnaryServerInterceptor
 		// requires a non-empty mspId/role, and role-gated operations (Mint,
 		// BatchMint) require role=MINTER.
 		if err := claims.Authorize(operationFromFullMethod(info.FullMethod)); err != nil {
+			return nil, status.Error(codes.PermissionDenied, err.Error())
+		}
+		// Enforce the trusted subject mapping when one is configured
+		// (JWT_IDENTITY_MAP); a nil registry enforces nothing.
+		if err := registry.Check(claims); err != nil {
 			return nil, status.Error(codes.PermissionDenied, err.Error())
 		}
 		return handler(ctx, req)

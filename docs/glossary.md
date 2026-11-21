@@ -4,10 +4,10 @@ This glossary uses responsibility layers rather than directory names. References
 
 | Layer / Term | English | Definition | Evidence |
 |---|---|---|---|
-| 接入生命周期 | Access Lifecycle | One process that selects the Fabric client, JWT/TLS options, and REST/gRPC listeners, then serves until process exit. | `cmd/api/main.go:226`, `cmd/api/main.go:258`, `cmd/api/main.go:282` |
-| REST 网关 | REST Gateway | The HTTP face that maps JSON requests to Fabric submissions/evaluations and exposes transaction IDs. | `cmd/api/main.go:282`, `cmd/api/main.go:88`, `cmd/api/main.go:214` |
+| 接入生命周期 | Access Lifecycle | One process that selects the Fabric client, JWT/TLS options, and REST/gRPC listeners, then serves until process exit. | `cmd/api/main.go:230`, `cmd/api/main.go:252`, `cmd/api/main.go:293` |
+| REST 网关 | REST Gateway | The HTTP face that maps JSON requests to Fabric submissions/evaluations and exposes transaction IDs. | `cmd/api/main.go:293`, `cmd/api/main.go:90`, `cmd/api/main.go:216` |
 | gRPC 网关 | gRPC Gateway | A generated protobuf contract plus service methods that mirror the REST surface. | `proto/playsmith/v1/gateway.proto:8`, `internal/gateway/service.go:17`, `internal/gatewaypb/gen/gateway.pb.go:1` |
-| 传输鉴权 | Transport Authentication | The JWT issuing middleware, bearer checks, and per-operation role authorization (`Mint`/`BatchMint` require `role=MINTER`) shared by REST and gRPC; issuance uses the same configured secret. | `internal/auth/jwt.go:20`, `internal/auth/authorize.go:26`, `cmd/api/main.go:298`, `cmd/api/main.go:320`, `cmd/api/main.go:403` |
+| 传输鉴权 | Transport Authentication | The JWT issuing middleware, bearer checks, and per-operation role authorization (`Mint`/`BatchMint` require `role=MINTER`) shared by REST and gRPC; issuance uses the same configured secret, and an optional `JWT_IDENTITY_MAP` binding additionally gates which validated subjects may act. | `internal/auth/jwt.go:20`, `internal/auth/authorize.go:26`, `internal/auth/identity.go:68`, `cmd/api/main.go:314`, `cmd/api/main.go:331`, `cmd/api/main.go:424` |
 | Fabric 适配 | Fabric Adapter | The `sdk.Client` boundary that keeps transport handlers independent of real Fabric Gateway or development no-op behavior. | `internal/sdk/fabric.go:7`, `internal/sdk/gateway.go:26`, `internal/sdk/fabric.go:17` |
 | 交易执行 | Transaction Execution | Fabric Gateway submission over mTLS/gRPC, commit-status checking, transaction-ID extraction, and read-only evaluation. | `internal/sdk/gateway.go:33`, `internal/sdk/gateway.go:78`, `internal/sdk/gateway.go:110` |
 | 提交错误 | Commit Error | A structured failed-commit result carrying the Fabric transaction ID and validation status code. | `internal/sdk/errors.go:9`, `internal/sdk/errors.go:16` |
@@ -22,6 +22,6 @@ This glossary uses responsibility layers rather than directory names. References
 | 派生模型 | Derived Model | The Postgres projection schema for raw events, balances, listings, and trades. | `cmd/indexer/main.go:21`, `cmd/indexer/main.go:85`, `cmd/indexer/main.go:100` |
 | 事件投影 | Event Projection | Parsing named JSON events, recording raw events for deduplication, and applying transactional SQL updates. | `cmd/indexer/main.go:123`, `cmd/indexer/main.go:135`, `cmd/indexer/main.go:220` |
 | 索引存储 | Index Store | PostgreSQL, configured solely by `POSTGRES_DSN`; the implementation has no Redis, MySQL, or local application file store. | `cmd/indexer/main.go:251`, `cmd/indexer/main.go:255`, `cmd/indexer/main.go:260` |
-| 环境配置 | Environment Configuration | Runtime inputs supplied as process environment variables and PEM files read at startup. | `cmd/api/main.go:228`, `internal/sdk/gateway.go:15`, `cmd/indexer/main.go:290` |
+| 环境配置 | Environment Configuration | Runtime inputs supplied as process environment variables and PEM files read at startup. | `cmd/api/main.go:243`, `internal/sdk/gateway.go:15`, `cmd/indexer/main.go:290` |
 | 部署协议 | Deployment Protocol | Fabric collection membership/endorsement policy represented by `deploy/collections.json`. | `deploy/collections.json:1`, `chaincode/playsmith-assets/main.go:260`, `deploy/README.md:1` |
 | 前端占位 | Frontend Placeholder | The declared-but-unimplemented UI boundary intended to query the projected PostgreSQL views. | `web/README.md:1`, `web/README.md:3`, `cmd/indexer/main.go:38` |

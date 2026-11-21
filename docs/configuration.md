@@ -7,32 +7,34 @@ is no configuration file to edit, and nothing is persisted by the application.
 
 | Variable | Effect | Read at |
 |---|---|---|
-| `FABRIC_GATEWAY_ENDPOINT` | When set, the gateway builds a real Fabric Gateway client; when unset it falls back to `NoopClient` dev mode | `cmd/api/main.go:228` |
-| `FABRIC_MSP_ID` | MSP of the gateway's own Fabric identity | `cmd/api/main.go:230` |
-| `FABRIC_CERT_PATH` | X.509 certificate for that identity | `cmd/api/main.go:231` |
-| `FABRIC_KEY_PATH` | Private key for that identity | `cmd/api/main.go:232` |
-| `FABRIC_TLS_PATH` | Gateway TLS CA material | `cmd/api/main.go:233` |
-| `FABRIC_CHANNEL_NAME` | Channel the transactions are submitted to | `cmd/api/main.go:235` |
-| `JWT_SECRET` | When set (≥32 bytes) JWT auth is on; also the secret `POST /api/v1/auth/token` checks against | `cmd/api/main.go:250` |
-| `GRPC_PORT` | Starts the gRPC listener; refuses to start unless `JWT_SECRET` is set | `cmd/api/main.go:258` |
-| `TLS_CERT_PATH` | REST/gRPC served over TLS when **both** this and `TLS_KEY_PATH` are set; setting exactly one of the two now fails startup instead of falling back to plaintext | `cmd/api/main.go:275`, `:473` |
-| `TLS_KEY_PATH` | Same pair as above; a half-configured pair falls back to plaintext | `cmd/api/main.go:269`, `:464` |
-| `PORT` | HTTP listen port, default `8080` | `cmd/api/main.go:246-249` |
+| `FABRIC_GATEWAY_ENDPOINT` | When set, the gateway builds a real Fabric Gateway client; when unset it falls back to `NoopClient` dev mode | `cmd/api/main.go:230` |
+| `FABRIC_MSP_ID` | MSP of the gateway's own Fabric identity | `cmd/api/main.go:232` |
+| `FABRIC_CERT_PATH` | X.509 certificate for that identity | `cmd/api/main.go:233` |
+| `FABRIC_KEY_PATH` | Private key for that identity | `cmd/api/main.go:234` |
+| `FABRIC_TLS_PATH` | Gateway TLS CA material | `cmd/api/main.go:235` |
+| `FABRIC_CHANNEL_NAME` | Channel the transactions are submitted to | `cmd/api/main.go:237` |
+| `JWT_SECRET` | When set (≥32 bytes) JWT auth is on; also the secret `POST /api/v1/auth/token` checks against | `cmd/api/main.go:252` |
+| `JWT_IDENTITY_MAP` | Optional trusted subject mapping `subject:mspId[:role];...`: once set, validated claims must match one binding (subject, mspId and — if pinned — role) before any Fabric call; a malformed value fails startup. Unset means no subject binding is enforced | `cmd/api/main.go:259`, `internal/auth/identity.go:68` |
+| `GRPC_PORT` | Starts the gRPC listener; refuses to start unless `JWT_SECRET` is set | `cmd/api/main.go:265` |
+| `TLS_CERT_PATH` | REST/gRPC served over TLS when **both** this and `TLS_KEY_PATH` are set; setting exactly one of the two now fails startup instead of falling back to plaintext | `cmd/api/main.go:491`, `:276` |
+| `TLS_KEY_PATH` | Same pair as above; a half-configured pair falls back to plaintext | `cmd/api/main.go:491`, `:407` |
+| `PORT` | HTTP listen port, default `8080` | `cmd/api/main.go:248-251` |
 
 The chaincode name is fixed to `playsmith-assets` at `cmd/api/main.go:236`.
 
 Two caveats worth knowing before you deploy:
 
 - **The Fabric identity is shared.** One `GatewayClient` is constructed at startup
-  and every caller submits through it (`cmd/api/main.go:228`). JWT claims are
-  checked and gated per operation, but they are not yet bound to distinct Fabric
-  signing identities. `todo.md:69` tracks that gap.
+  and every caller submits through it (`cmd/api/main.go:243`). `JWT_IDENTITY_MAP`,
+  when set, gates which validated subjects may act at all, but the mapping never
+  selects a different certificate: per-identity signing identity stays open, and
+  `todo.md:76` tracks that gap.
 - **TLS is all-or-nothing.** Only a complete certificate/key pair enables TLS on
   both faces; leaving one side unset serves plaintext, which is only acceptable
   in development.
 
 `X-Issue-Secret` is a request header, not an environment variable: it must equal
-`JWT_SECRET` for token issuance to succeed (`cmd/api/main.go:298-306`).
+`JWT_SECRET` for token issuance to succeed (`cmd/api/main.go:314-323`).
 
 ## Indexer (`cmd/indexer`)
 

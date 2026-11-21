@@ -162,7 +162,7 @@ func TestAuthMiddlewareValidToken(t *testing.T) {
 func TestGRPCAuthInterceptor(t *testing.T) {
 	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
 	tok, _ := manager.Issue("server-1", "Org1MSP", "MINTER")
-	interceptor := grpcAuthUnaryInterceptor(manager)
+	interceptor := grpcAuthUnaryInterceptor(manager, nil)
 	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
 	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/Mint"}
 
@@ -225,7 +225,7 @@ func TestAuthMiddlewareRequiresIdentity(t *testing.T) {
 func TestGRPCAuthInterceptorDeniesNonMinterMint(t *testing.T) {
 	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
 	tok, _ := manager.Issue("server-1", "Org1MSP", "PLAYER")
-	interceptor := grpcAuthUnaryInterceptor(manager)
+	interceptor := grpcAuthUnaryInterceptor(manager, nil)
 	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
 	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/Mint"}
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
@@ -237,7 +237,78 @@ func TestGRPCAuthInterceptorDeniesNonMinterMint(t *testing.T) {
 func TestGRPCAuthInterceptorQueryNeedsIdentity(t *testing.T) {
 	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
 	tok, _ := manager.Issue("server-1", "", "") // no mspId/role
-	interceptor := grpcAuthUnaryInterceptor(manager)
+	interceptor := grpcAuthUnaryInterceptor(manager, nil)
+	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
+	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/BalanceOf"}
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
+	if _, err := interceptor(ctx, nil, info, handler); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("code=%v, want PermissionDenied", status.Code(err))
+	}
+}
+
+func TestAuthMiddlewareRejectsUnboundSubject(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	// Passes per-operation authorization (well-formed identity, query route),
+	// but the subject is not in the configured mapping.
+	tok, _ := manager.Issue("server-9", "Org1MSP", "MINTER")
+	reg, err := auth.ParseIdentityMap("server-1:Org1MSP")
+	if err != nil {
+		t.Fatalf("parse identity map: %v", err)
+	}
+	f := &fakeClient{}
+	s := &Server{JWTManager: manager, Fabric: f, identityMap: reg}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/assets/tok1/balance/owner1", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", w.Code, w.Body.String())
+	}
+	if f.lastEval != "" {
+		t.Fatalf("unbound subject reached Fabric: %s", f.lastEval)
+	}
+}
+
+func TestAuthMiddlewareAllowsBoundSubject(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-1", "Org1MSP", "MINTER")
+	reg, _ := auth.ParseIdentityMap("server-1:Org1MSP")
+	s := &Server{JWTManager: manager, Fabric: &fakeClient{}, identityMap: reg}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/assets/tok1/balance/owner1", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAuthMiddlewareIdentityRolePin(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	// Same subject+mspId, but the binding pins role=MINTER and this token is
+	// PLAYER: per-operation authorization passes on a query route, the role
+	// pin must still reject it.
+	tok, _ := manager.Issue("server-1", "Org1MSP", "PLAYER")
+	reg, _ := auth.ParseIdentityMap("server-1:Org1MSP:MINTER")
+	f := &fakeClient{}
+	s := &Server{JWTManager: manager, Fabric: f, identityMap: reg}
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/assets/tok1/balance/owner1", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403, body=%s", w.Code, w.Body.String())
+	}
+	if f.lastEval != "" {
+		t.Fatalf("role-pinned violation reached Fabric: %s", f.lastEval)
+	}
+}
+
+func TestGRPCInterceptorRejectsUnboundSubject(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	tok, _ := manager.Issue("server-9", "Org1MSP", "MINTER")
+	reg, _ := auth.ParseIdentityMap("server-1:Org1MSP")
+	interceptor := grpcAuthUnaryInterceptor(manager, reg)
 	handler := func(ctx context.Context, req any) (any, error) { return "OK", nil }
 	info := &grpc.UnaryServerInfo{FullMethod: "/playsmith.v1.Gateway/BalanceOf"}
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer "+tok))
