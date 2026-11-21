@@ -27,7 +27,7 @@
 ## Indexer / 部署
 
 - [x] `cmd/indexer` 真实现：订阅链码事件（TransferSingle/TransferBatch/AskCreated/AskCanceled/Trade）并 upsert Postgres（当前为 10s tick 占位）
-  - 证据：`cmd/indexer/main.go:123`（`HandleEvent` 分发 5 类事件）、`:30-84`（schema 建表）、`:405`（`ChaincodeEvents` 订阅）；测试 `TestTransferSingleUpsert` 等通过；commit `1a1aa6b`
+  - 证据：`cmd/indexer/main.go:123`（`HandleEvent` 分发 5 类事件）、`:30-84`（schema 建表）、`:405`（`ChaincodeEvents` 订阅）；测试 `TestTransferSingleMintUpsert` 等通过；commit `1a1aa6b`
 - [x] 补 `playsmithPvt` 私有数据集合的 collections 配置 JSON（`ListForSalePrivate`/`CancelListing` 已调用 `PutPrivateData`，无配置文件则部署失败）
   - 证据：`deploy/collections.json`（`playsmithPvt` 集合定义）；commit `1a1aa6b`
 
