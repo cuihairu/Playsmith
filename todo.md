@@ -116,6 +116,8 @@
   - 证据：`internal/sdk/fabric.go:13-17`（新注释，删除误导 TODO）；`grep -rn "NoopClient" --include=*.go` 仅剩定义处与 `cmd/api/main.go:244` 兜底接入，无任何测试依赖 `TX_NOOP`；`grep -rnE "TODO|FIXME"` 在 `.go`/`.mts`/`.mjs`/`.proto` 下已无命中（`make test` 双模块绿，含 proto 守卫）。commit `3476475`。
 - [x] 上面那次改动新增 4 行，导致文档里精确行号引用漂移：`docs/architecture.md:21` 与 `docs/glossary.md:11` 均引用 `internal/sdk/fabric.go:13` 指 `NoopClient`，改动后类型已落在第 17 行。两处已改为 `:17`（`fabric.go:7` 的 `Client` 接口引用仍准确，未动）。
   - 证据：`grep -rn "fabric.go:[0-9]" docs/*.md` 全部与源码实际行号一致（`Client` 在 `:7`、`NoopClient` 在 `:17`）；`docs` 测试 11/11 绿、`pnpm --filter @playsmith/docs build` 绿（114.81s，页面无回归）。commit `c02f744`。
+- [x] 既然上面那次编辑就制造了一处行号漂移，说明文档里 `file:line` 引用需要系统核验：对 14 个文档文件提取全部 `路径:行号` 引用与源码实际比对（引用行必须存在；文档就近写明标识符时，该标识符须落在引用行 ±3 行窗口内）。
+  - 证据：222 处引用全部通过，**0 处漂移**（唯一两例即上面已修的 `fabric.go:13→17`）；另有 7 处 `../<path>:<line>` 为 `docs/` 源码根下的跨树证据链接（正是 `config.mts` 的 `ignoreDeadLinks: [/^(\.\/)?\.\.\//]` 豁免的那类），按 `docs/` 相对路径逐一确认文件均存在。校验脚本为一次性临时脚本（`/tmp`，未入库）。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
@@ -123,5 +125,5 @@
 
 - [Blocked] 文档站 dev 工具链 9 条公告（vite ×8、esbuild ×1；1 high / 7 medium / 1 low）——全部只影响 `pnpm dev` 开发服务器，`vitepress build` 的静态 HTML 产物不含受影响代码。
   - 现状：`docs/package.json` 锁 `vitepress@^1.6.4`（1.6.4 即 npm 的 `latest`），传递依赖锁定 `vite@5.4.21`、`esbuild@0.21.5`；vite 5.x 线最新即为 5.4.21，已无 5.x 线内的修复版，6.x/7.x/8.x 各线才有补丁。
-  - BLOCKED 缺什么：需升 vitepress 2.x 才能带上 vite ≥6，属文档站主版本升级，而 npm `latest` 标签尚不指向 2.x，可能牵动文档站构建与 Pages 部署面；不擅自升主版本。公告清单：https://github.com/cuihairu/Playsmith/security/dependabot （2026-11-21 查询到 9 条 open）。
+  - BLOCKED 缺什么：需升 vitepress 2.x 才能带上 vite ≥6，属文档站主版本升级。**2026-11-21 复核 npm dist-tags 后结论更硬**：`latest = 1.6.4`（即当前锁定版本）、`next = 2.0.0-alpha.21`——**2.x 至今没有任何稳定版**，所以修复路径不是「升级到正式版」而是「降级到预发布版」，风险更高，明确不做，等 2.x 转正再评估。公告清单：https://github.com/cuihairu/Playsmith/security/dependabot （2026-11-21 查询到 9 条 open）。
     - 为何 dependabot 自己开不了 PR（2026-11-21 查其任务定义）：更新策略为 `security-updates-only: true` 且 `update-subdependencies: false`，而 `vite`/`esbuild`/`launch-editor` 全是 `vitepress` 的传递依赖，直接依赖 `vitepress@^1.6.4` 已无更高 1.x 版本可升——无子依赖更新通道、无直接依赖可升，故 2026-11-14 连续 3 次构建失败、当前 0 个 open PR。受影响范围与锁定版本比对：`esbuild >= 0.17.0 < 0.28.1`（锁定 0.21.5，确受影响，修复需 ≥0.28.1）；多数 `vite` 公告的 5.x 区间上限为 5.4.18/5.4.20，锁定 5.4.21 已在其外，真正待修的是 esbuild 与 launch-editor。
