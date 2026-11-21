@@ -28,31 +28,19 @@ jobs:
         with:
           go-version: '1.26'
           cache: false
-      # build and test both depend on proto-check, which pins protoc exactly.
-      # The pinned generation plugins are installed by make proto-install, so a
-      # plain protoc alone is not enough.
+      # build and test both depend on proto-check, which pins protoc exactly
+      # (Makefile PROTOC_VERSION). protoc 3.21.12 has no GitHub release asset, so it
+      # comes from apt rather than a download. proto-doctor fails loudly if the apt
+      # package ever drifts from the pinned version.
       - name: Install protoc
-        run: |
-          mkdir -p tools/bin
-          curl -fsSL -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.21.12/protoc-3.21.12-linux-x86_64.zip
-          unzip -q protoc.zip -d tools/bin
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Verify toolchain
-        env:
-          PATH: "${{ github.workspace }}/tools/bin:${{ env.GOPATH }}/bin:$PATH"
         run: make proto-doctor
       - name: Install protoc plugins
         run: make proto-install
-        env:
-          PATH: "${{ github.workspace }}/tools/bin:$PATH"
       - name: Build
         run: make build
-        env:
-          PATH: "${{ github.workspace }}/tools/bin:${{ env.GOPATH }}/bin:$PATH"
       - name: Vet
         run: make vet
-        env:
-          PATH: "${{ github.workspace }}/tools/bin:${{ env.GOPATH }}/bin:$PATH"
       - name: Test
         run: make test
-        env:
-          PATH: "${{ github.workspace }}/tools/bin:${{ env.GOPATH }}/bin:$PATH"
