@@ -114,6 +114,8 @@
 
 - [x] 清理 `internal/sdk/fabric.go` 过时的 `// TODO: implement with fabric-gateway`：该 TODO 暗示 Gateway SDK 接入尚未实现，但真实实现早已在 `internal/sdk/gateway.go`（`GatewayClient`/`NewGatewayClient`，对应本文件第 20 行「接入 Fabric Gateway SDK」勾选项）；`NoopClient` 只是 `FABRIC_GATEWAY_ENDPOINT` 未设时的开发兜底（`cmd/api/main.go:244-245`），并非未完成项。已改为准确注释，说明其为有意的开发占位并指向 `gateway.go`。
   - 证据：`internal/sdk/fabric.go:13-17`（新注释，删除误导 TODO）；`grep -rn "NoopClient" --include=*.go` 仅剩定义处与 `cmd/api/main.go:244` 兜底接入，无任何测试依赖 `TX_NOOP`；`grep -rnE "TODO|FIXME"` 在 `.go`/`.mts`/`.mjs`/`.proto` 下已无命中（`make test` 双模块绿，含 proto 守卫）。commit `3476475`。
+- [x] 上面那次改动新增 4 行，导致文档里精确行号引用漂移：`docs/architecture.md:21` 与 `docs/glossary.md:11` 均引用 `internal/sdk/fabric.go:13` 指 `NoopClient`，改动后类型已落在第 17 行。两处已改为 `:17`（`fabric.go:7` 的 `Client` 接口引用仍准确，未动）。
+  - 证据：`grep -rn "fabric.go:[0-9]" docs/*.md` 全部与源码实际行号一致（`Client` 在 `:7`、`NoopClient` 在 `:17`）；`docs` 测试 11/11 绿、`pnpm --filter @playsmith/docs build` 绿（114.81s，页面无回归）。commit `c02f744`。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
