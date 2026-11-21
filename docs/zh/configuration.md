@@ -16,8 +16,8 @@
 | `JWT_SECRET` | 设置（≥32 字节）即开启 JWT；同时是 `POST /api/v1/auth/token` 校验的密钥 | `cmd/api/main.go:252` |
 | `JWT_IDENTITY_MAP` | 可选的可信主体映射 `subject:mspId[:role];...`：设置后，校验通过的 claims 必须命中其中一条绑定（subject、mspId，以及绑定中钉住的 role），否则在任何 Fabric 调用之前被拒；签发令牌时同样拒绝未绑定的主体；取值格式非法会直接拒绝启动。未设置表示不校验主体绑定 | `cmd/api/main.go:259`、`cmd/api/main.go:329`、`internal/auth/identity.go:68` |
 | `GRPC_PORT` | 启动 gRPC 监听器；未设 `JWT_SECRET` 时拒绝启动 | `cmd/api/main.go:265` |
-| `TLS_CERT_PATH` | 与 `TLS_KEY_PATH` **同时**设置时，REST/gRPC 以 TLS 提供服务 | `cmd/api/main.go:501`、`:286` |
-| `TLS_KEY_PATH` | 同上；只配一半会回退明文 | `cmd/api/main.go:501`、`:417` |
+| `TLS_CERT_PATH` | 与 `TLS_KEY_PATH` **同时**设置时，REST/gRPC 以 TLS 提供服务；只配一边会在启动时失败，不回退明文 | `cmd/api/main.go:501`、`:286` |
+| `TLS_KEY_PATH` | 同上；只配一半会在启动时失败，不回退明文 | `cmd/api/main.go:501`、`:417` |
 | `PORT` | HTTP 监听端口，默认 `8080` | `cmd/api/main.go:248-251` |
 
 链码名在 `cmd/api/main.go:236` 固定为 `playsmith-assets`。
@@ -28,8 +28,9 @@
   提交（`cmd/api/main.go:243`）。
   设置了 `JWT_IDENTITY_MAP` 时，它会拦截哪些校验通过的主体有资格行动，但映射
   本身从不挑选不同的证书：按主体选择签名身份仍未落地，缺口登记在 `todo.md:77`。
-- **TLS 是全有或全无。** 只有证书/私钥成对齐全时两面才启用 TLS；少配一边就走
-  明文，只允许出现在开发环境。
+- **TLS 是全有或全无。** 只有证书/私钥成对齐全时两面才启用 TLS；只配一边会在
+  启动时失败（而非回退明文），避免部署者以为已启用 TLS 却把令牌与签发密钥明文
+  发出去。两边都未配才走明文，只允许出现在开发环境。
 
 `X-Issue-Secret` 是请求头而非环境变量：签发令牌时必须与 `JWT_SECRET` 相同
 （`cmd/api/main.go:252`、`cmd/api/main.go:324-333`）。

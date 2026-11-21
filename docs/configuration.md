@@ -17,7 +17,7 @@ is no configuration file to edit, and nothing is persisted by the application.
 | `JWT_IDENTITY_MAP` | Optional trusted subject mapping `subject:mspId[:role];...`: once set, validated claims must match one binding (subject, mspId and — if pinned — role) before any Fabric call, and token issuance refuses unbound subjects; a malformed value fails startup. Unset means no subject binding is enforced | `cmd/api/main.go:259`, `cmd/api/main.go:329`, `internal/auth/identity.go:68` |
 | `GRPC_PORT` | Starts the gRPC listener; refuses to start unless `JWT_SECRET` is set | `cmd/api/main.go:265` |
 | `TLS_CERT_PATH` | REST/gRPC served over TLS when **both** this and `TLS_KEY_PATH` are set; setting exactly one of the two now fails startup instead of falling back to plaintext | `cmd/api/main.go:501`, `:286` |
-| `TLS_KEY_PATH` | Same pair as above; a half-configured pair falls back to plaintext | `cmd/api/main.go:501`, `:417` |
+| `TLS_KEY_PATH` | Same pair as above; setting exactly one of the two fails startup instead of falling back to plaintext | `cmd/api/main.go:501`, `:417` |
 | `PORT` | HTTP listen port, default `8080` | `cmd/api/main.go:248-251` |
 
 The chaincode name is fixed to `playsmith-assets` at `cmd/api/main.go:236`.
@@ -30,8 +30,9 @@ Two caveats worth knowing before you deploy:
   but the mapping never selects a different certificate: per-identity signing
   identity stays open, and `todo.md:77` tracks that gap.
 - **TLS is all-or-nothing.** Only a complete certificate/key pair enables TLS on
-  both faces; leaving one side unset serves plaintext, which is only acceptable
-  in development.
+  both faces; setting exactly one of the two fails startup rather than silently
+  serving bearer tokens and the signing secret over plaintext. Neither one set
+  serves plaintext, which is only acceptable in development.
 
 `X-Issue-Secret` is a request header, not an environment variable: it must equal
 `JWT_SECRET` for token issuance to succeed (`cmd/api/main.go:252`,
