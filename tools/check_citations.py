@@ -11,6 +11,12 @@ and every citation on that line points into the same file, that variable must
 appear within +/-5 lines of at least one cited line. Everything else is checked
 for existence and line range only.
 
+Separately, the configuration docs claim to list every environment variable the
+code reads (verified by hand once, todo.md row 128): every SCREAMING_SNAKE
+`os.Getenv` literal in non-generated code must have a row in both the English
+and Chinese configuration tables, and every table row must name a variable the
+code actually reads.
+
 Historical ledgers are excluded: they record positions as observed at audit
 time, not the current tree.
 
@@ -49,6 +55,39 @@ seen_cache = {}
 # todo.md:77". Such a pointer must land on a list item: hitting a heading, a
 # blank line or another section's prose silently breaks it.
 TODO_ANCHOR = re.compile(r"^\s*-")
+
+# Env coverage: code os.Getenv literals must match the configuration tables.
+GETENV = re.compile(r'os\.Getenv\("([A-Z][A-Z_]+)"\)')
+DOC_ROW = re.compile(r"^\|\s*`([A-Z][A-Z_]+)`\s*\|", re.M)
+CONFIG_DOCS = ["docs/configuration.md", "docs/zh/configuration.md"]
+
+
+def go_files():
+    for p in ROOT.rglob("*.go"):
+        s = str(p)
+        if "/gen/" in s or s.endswith("_test.go"):
+            continue
+        yield p
+
+
+def env_coverage():
+    code = set()
+    for p in go_files():
+        code |= set(GETENV.findall(p.read_text(encoding="utf-8", errors="replace")))
+    rows = {}
+    for d in CONFIG_DOCS:
+        text = (ROOT / d).read_text(encoding="utf-8")
+        rows[d] = set(DOC_ROW.findall(text))
+    problems = []
+    for d in CONFIG_DOCS:
+        for name in sorted(code - rows[d]):
+            problems.append(f"{name} is read by code but has no row in {d}")
+        for name in sorted(rows[d] - code):
+            problems.append(f"{d} documents {name} but the code never reads it")
+    print(f"env coverage: {len(code)} code vars, "
+          + ", ".join(f"{d}: {len(rows[d])} rows" for d in CONFIG_DOCS)
+          + f", mismatches: {len(problems)}")
+    return problems
 
 
 def read_lines(rel):
@@ -121,6 +160,9 @@ def main():
                             f"but '{ident}' is absent from every +/-{WINDOW} window"
                         )
                         drift += 1
+    env_problems = env_coverage()
+    problems += env_problems
+    drift += len(env_problems)
     print(f"citations checked: {checked}, proven drift: {drift}")
     for p in problems:
         print("  DRIFT:", p)
