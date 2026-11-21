@@ -137,6 +137,39 @@ func TestIssueTokenRequiresIssueSecret(t *testing.T) {
 	}
 }
 
+func TestIssueTokenRejectsUnboundSubject(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	reg, _ := auth.ParseIdentityMap("server-1:Org1MSP")
+	s := &Server{JWTManager: manager, issueSecret: []byte("0123456789abcdef0123456789abcdef"), identityMap: reg}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", strings.NewReader(`{"subject":"server-9","mspId":"Org1MSP","role":"MINTER"}`))
+	r.Header.Set("X-Issue-Secret", "0123456789abcdef0123456789abcdef")
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestIssueTokenAllowsBoundSubject(t *testing.T) {
+	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
+	reg, _ := auth.ParseIdentityMap("server-1:Org1MSP")
+	s := &Server{JWTManager: manager, issueSecret: []byte("0123456789abcdef0123456789abcdef"), identityMap: reg}
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/token", strings.NewReader(`{"subject":"server-1","mspId":"Org1MSP","role":"MINTER"}`))
+	r.Header.Set("X-Issue-Secret", "0123456789abcdef0123456789abcdef")
+	w := httptest.NewRecorder()
+	s.router().ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("bad json: %v", err)
+	}
+	if tok, _ := resp["result"].(string); tok == "" {
+		t.Fatal("empty token")
+	}
+}
+
 func TestAuthMiddlewareRequiresToken(t *testing.T) {
 	manager, _ := auth.NewManager("0123456789abcdef0123456789abcdef", "playsmith", "game-server", time.Hour)
 	s := &Server{JWTManager: manager, Fabric: &fakeClient{}}

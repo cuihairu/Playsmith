@@ -320,6 +320,16 @@ func (s *Server) issueToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	// Never mint a token for a caller the subject map does not accept: such a
+	// token would only be rejected at request time, and an unbound subject is
+	// a configuration typo worth failing on at issuance. A nil registry (map
+	// unset) enforces nothing, preserving the pre-mapping behavior.
+	claims := &auth.Claims{MSPID: req.MSPID, Role: req.Role}
+	claims.Subject = req.Subject
+	if err := s.identityMap.Check(claims); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
 	token, err := s.JWTManager.Issue(req.Subject, req.MSPID, req.Role)
 	if err != nil {
 		http.Error(w, err.Error(), 400)

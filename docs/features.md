@@ -1,7 +1,7 @@
 # Features and Routes
 
 This page lists the routes that actually exist. The REST table is taken from the
-gateway router at `cmd/api/main.go:293-307`, where every route is wrapped in the
+gateway router at `cmd/api/main.go:303-317`, where every route is wrapped in the
 auth middleware. Request field names are the JSON tags of the structs at
 `cmd/api/main.go:34-88`.
 
@@ -25,7 +25,7 @@ auth middleware. Request field names are the JSON tags of the structs at
 | GET | `/api/v1/assets/{tokenId}/balance/{owner}` | — | `BalanceOf` |
 
 The four asset reads share one prefix handler: `assetRoute` at
-`cmd/api/main.go:454` splits the path after `/api/v1/assets/` and dispatches on
+`cmd/api/main.go:464` splits the path after `/api/v1/assets/` and dispatches on
 the remaining segments. The listing browser (`listings`), the web UI and
 Caliper-style load tests are planned over the indexer projection and are not
 routes yet.
