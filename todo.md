@@ -136,6 +136,9 @@
   - 证据：run [44859493416](https://github.com/cuihairu/Playsmith/actions/runs/44859493416) `completed/success`（build、vet、test 全绿，test 含 proto 守卫与 chaincode 模块）。commit `df39a79`（初版，失败：`protoc-3.21.12-linux-x86_64.zip` 下载 404——v3.21.12 只有 git tag 没有 GitHub Release 对象，`releases/tags/v3.21.12` 404 而 v22.4 同形 URL 302，可证版本特有缺口）→ `fe19022` 改从 apt 装 `protobuf-compiler`（Ubuntu 24.04 包即 3.21.12-15ubuntu1.x，与本机一致；`make proto-doctor` 钉死版本，apt 漂移会当场红）。
   - 运维备忘：`setup-go@v6.1.0` 会把 `GOPATH/bin` 加进 PATH，故 `make proto-install` 装的 protoc-gen-go / protoc-gen-go-grpc 无需手动追加 PATH；且 setup-go 在 run 环境设 `GOTOOLCHAIN: local`，go.mod 的 `go 1.26` 与安装版本一致即可。
 
+- [x] 文档行号引用门禁：docs/README 以 `path:line` 精确引用源码，源码插行即整体漂移（本轮前已两次踩坑）。新增 `tools/check_citations.py` 并入 ci（commit `cdc3ec0`）：所有引用校验「文件存在 + 行号在范围内」硬失败；仅当行内反引号出现 SCREAMING_SNAKE 环境变量、且该行全部引用指向同一文件时，才要求该变量出现在任一 ±5 行窗口——证不了的断言一律不做，0 误报。
+  - 首轮即抓到真实漂移：`db27d09`（indexer 精度/dedupe/resume 改造）把 `cmd/indexer/main.go` 从 346 行涨到 502 行，docs 里全部 `cmd/indexer/main.go:NN` 引用过时（如 `POSTGRES_DSN` 实读 380、文档仍写 251；`FABRIC_*` 实读 452-457、文档写 290-295）。按旧→新映射单遍重映射 architecture/configuration/glossary 及 zh 镜像；首轮 21 条 DRIFT = 16 条 indexer 漂移 + 5 条散文 env 误报（4 行，`JWT_IDENTITY_MAP`/`JWT_SECRET` 段落换行或补 `:252` 引用解决）。现状：`python3 tools/check_citations.py` → `citations checked: 243, proven drift: 0`；ci.yml 补 docs/**、README*.md、tools/** 触发路径与 Doc citations 步骤。commit `cdc3ec0`。
+
 ## 依赖公告（2026-11-21，dependabot 推送时上报）
 
 - [Blocked] 文档站 dev 工具链 9 条公告（vite ×8、esbuild ×1；1 high / 7 medium / 1 low）——全部只影响 `pnpm dev` 开发服务器，`vitepress build` 的静态 HTML 产物不含受影响代码。
