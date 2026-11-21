@@ -123,6 +123,12 @@
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
+## CI 门禁（2026-11-21，补 Go 侧 CI）
+
+- [x] 新增 `.github/workflows/ci.yml`：仓库此前只有 pages（文档站）workflow，`make build`/`make vet`/`make test`（proto 守卫 + 主模块 + chaincode 模块）从未在 CI 强制过。现 push/PR 触发：checkout → setup-go 1.26（cache 关，避免无 go.sum 变更时的缓存噪声）→ apt 装 protoc → `make proto-doctor` 校验工具链 → `make proto-install` → build/vet/test。权限仅 `contents: read`。
+  - 证据：run [44859493416](https://github.com/cuihairu/Playsmith/actions/runs/44859493416) `completed/success`（build、vet、test 全绿，test 含 proto 守卫与 chaincode 模块）。commit `df39a79`（初版，失败：`protoc-3.21.12-linux-x86_64.zip` 下载 404——v3.21.12 只有 git tag 没有 GitHub Release 对象，`releases/tags/v3.21.12` 404 而 v22.4 同形 URL 302，可证版本特有缺口）→ `fe19022` 改从 apt 装 `protobuf-compiler`（Ubuntu 24.04 包即 3.21.12-15ubuntu1.x，与本机一致；`make proto-doctor` 钉死版本，apt 漂移会当场红）。
+  - 运维备忘：`setup-go@v6.1.0` 会把 `GOPATH/bin` 加进 PATH，故 `make proto-install` 装的 protoc-gen-go / protoc-gen-go-grpc 无需手动追加 PATH；且 setup-go 在 run 环境设 `GOTOOLCHAIN: local`，go.mod 的 `go 1.26` 与安装版本一致即可。
+
 ## 依赖公告（2026-11-21，dependabot 推送时上报）
 
 - [Blocked] 文档站 dev 工具链 9 条公告（vite ×8、esbuild ×1；1 high / 7 medium / 1 low）——全部只影响 `pnpm dev` 开发服务器，`vitepress build` 的静态 HTML 产物不含受影响代码。
