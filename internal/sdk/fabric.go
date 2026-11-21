@@ -10,10 +10,13 @@ type Client interface {
 	Evaluate(contract, txn string, args ...string) (string, error)
 }
 
+// NoopClient is the intentional dev-mode stand-in, wired in by cmd/api when
+// FABRIC_GATEWAY_ENDPOINT is unset so the API still runs without a network.
+// It is not an unfinished implementation: the real GatewayClient lives in
+// gateway.go.
 type NoopClient struct{}
 
 func (n *NoopClient) Submit(contract, txn string, args ...string) (string, string, error) {
-	// TODO: implement with github.com/hyperledger/fabric-gateway/pkg/client
 	return "TX_NOOP", "", nil
 }
 
