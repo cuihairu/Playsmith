@@ -1,7 +1,7 @@
 # 功能与路由
 
-本页只列真实存在的路由。REST 表取自网关路由表 `cmd/api/main.go:282-296`，
-所有路由都包在鉴权中间件里；请求字段名是 `cmd/api/main.go:33-86` 那组 struct 的
+本页只列真实存在的路由。REST 表取自网关路由表 `cmd/api/main.go:293-307`，
+所有路由都包在鉴权中间件里；请求字段名是 `cmd/api/main.go:34-88` 那组 struct 的
 JSON tag。
 
 ## REST 路由
@@ -23,12 +23,12 @@ JSON tag。
 | GET | `/api/v1/assets/{tokenId}/totalSupply` | — | `TotalSupply` |
 | GET | `/api/v1/assets/{tokenId}/balance/{owner}` | — | `BalanceOf` |
 
-四个资产读接口共用一个前缀处理器：`cmd/api/main.go:428` 的 `assetRoute` 按
+四个资产读接口共用一个前缀处理器：`cmd/api/main.go:454` 的 `assetRoute` 按
 `/api/v1/assets/` 之后的路径段分发。卖单/成交检索（listings 浏览）、Web UI 与
 Caliper 类压测都建在索引器投影之上，目前尚未成为路由。
 
 提交成功写 `{ "result": ..., "txId": "..." }`；失败写 HTTP 500 加
-`{ "error": "..." }`（`cmd/api/main.go:214-222`）。上游错误目前尚未映射为
+`{ "error": "..." }`（`cmd/api/main.go:216-224`）。上游错误目前尚未映射为
 400/404——那套映射是 `docs/SPEC.md` 里的目标，不是当前行为。
 
 ## gRPC 面

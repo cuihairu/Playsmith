@@ -1,9 +1,9 @@
 # Features and Routes
 
 This page lists the routes that actually exist. The REST table is taken from the
-gateway router at `cmd/api/main.go:282-296`, where every route is wrapped in the
+gateway router at `cmd/api/main.go:293-307`, where every route is wrapped in the
 auth middleware. Request field names are the JSON tags of the structs at
-`cmd/api/main.go:33-86`.
+`cmd/api/main.go:34-88`.
 
 ## REST routes
 
@@ -25,13 +25,13 @@ auth middleware. Request field names are the JSON tags of the structs at
 | GET | `/api/v1/assets/{tokenId}/balance/{owner}` | — | `BalanceOf` |
 
 The four asset reads share one prefix handler: `assetRoute` at
-`cmd/api/main.go:428` splits the path after `/api/v1/assets/` and dispatches on
+`cmd/api/main.go:454` splits the path after `/api/v1/assets/` and dispatches on
 the remaining segments. The listing browser (`listings`), the web UI and
 Caliper-style load tests are planned over the indexer projection and are not
 routes yet.
 
 Submissions write `{ "result": ..., "txId": "..." }`; failures write HTTP 500
-with `{ "error": "..." }` (`cmd/api/main.go:214-222`). Upstream errors are not
+with `{ "error": "..." }` (`cmd/api/main.go:216-224`). Upstream errors are not
 yet mapped to 400/404 — that mapping is a spec target in `docs/SPEC.md`, not
 current behaviour.
 
