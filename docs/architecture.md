@@ -18,7 +18,7 @@ The implementation does not bind JWT claims to distinct Fabric signing identitie
 
 ## 3. Fabric Adapter
 
-`internal/sdk` isolates the application process from Hyperledger Fabric. `Client` defines submit, transient submit, and evaluate contracts (`internal/sdk/fabric.go:7`). `NoopClient` returns development fixtures without touching Fabric (`internal/sdk/fabric.go:13`). `GatewayClient` loads X.509 identity and TLS PEM files, constructs an X.509 identity and signer, opens a TLS gRPC connection to the configured gateway, and selects the configured channel (`internal/sdk/gateway.go:33`). Its schema is `sdk.Config` (`internal/sdk/gateway.go:16`), populated exclusively by API environment variables (`cmd/api/main.go:228`).
+`internal/sdk` isolates the application process from Hyperledger Fabric. `Client` defines submit, transient submit, and evaluate contracts (`internal/sdk/fabric.go:7`). `NoopClient` returns development fixtures without touching Fabric (`internal/sdk/fabric.go:17`). `GatewayClient` loads X.509 identity and TLS PEM files, constructs an X.509 identity and signer, opens a TLS gRPC connection to the configured gateway, and selects the configured channel (`internal/sdk/gateway.go:33`). Its schema is `sdk.Config` (`internal/sdk/gateway.go:16`), populated exclusively by API environment variables (`cmd/api/main.go:228`).
 
 Submissions wait for commit status and return both payload and Fabric transaction ID (`internal/sdk/gateway.go:78`, `internal/sdk/gateway.go:94`). Failed commits become `CommitError`, retaining transaction ID and validation code (`internal/sdk/errors.go:9`). There is no dedicated protocol file here; the adapter speaks Hyperledger Fabric Gateway rather than the repository's public gateway proto.
 
