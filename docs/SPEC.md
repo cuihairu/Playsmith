@@ -28,6 +28,7 @@ Transactions (Chaincode)
   - `URI(id)` -> string
   - `TotalSupply(id)` -> uint64
   - `Exists(id)` -> bool
+  - `BalanceOf(id, owner)` -> uint64
 - Marketplace
   - `ListForSale(id, seller, amount, price)` -> listingId (public price)
   - `ListForSalePrivate(id, seller, amount)` -> listingId (price from transient, stored in PDC, public state stores priceHash)
