@@ -32,10 +32,21 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # record positions as observed at audit time, not the current tree.
 EXCLUDE = {"todo.md", "docs/审计-文档一致性.md"}
 
+# Docs outside docs/ and the root README pair. deploy/README.md, the web
+# placeholder and the generated-code README are all citable, so they must stay
+# in the matrix: any citation a future edit adds to them is checked like the
+# rest instead of being invisible.
+EXTRA_DOCS = [
+    "deploy/README.md",
+    "web/README.md",
+    "internal/gatewaypb/gen/README.md",
+]
+
 
 def doc_files():
     out = sorted(str(p.relative_to(ROOT)) for p in ROOT.glob("docs/**/*.md"))
     out += [str(p.relative_to(ROOT)) for p in ROOT.glob("README*.md")]
+    out += [d for d in EXTRA_DOCS if (ROOT / d).is_file()]
     return [d for d in out if d not in EXCLUDE and ".vitepress/dist" not in d]
 
 # `path:line` or `path:start-end` where path starts with a ./ or ../ relative
