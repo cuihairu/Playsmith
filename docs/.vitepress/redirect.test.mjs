@@ -36,16 +36,24 @@ function run(sb) {
 }
 
 test("zh browser first visit on an English page is redirected to the zh twin", () => {
-  const { sb, target, storage } = sandbox({ language: "zh-CN", path: BASE + "features/" });
-  run(sb);
-  assert.equal(target.replaced, BASE + "zh/features/");
-  assert.equal(storage.get("ps-locale"), "auto");
+  // Both reachable URL shapes must be covered: GitHub Pages serves the flat
+  // build files, so visitors land on /features and /features.html, while
+  // /features/ is a 404 and needs no coverage.
+  for (const [path, want] of [
+    [BASE + "features", BASE + "zh/features"],
+    [BASE + "features.html", BASE + "zh/features.html"],
+  ]) {
+    const { sb, target, storage } = sandbox({ language: "zh-CN", path });
+    run(sb);
+    assert.equal(target.replaced, want, path);
+    assert.equal(storage.get("ps-locale"), "auto");
+  }
 });
 
 test("zh-TW browsers count as zh too", () => {
-  const { sb, target } = sandbox({ language: "zh-TW", path: BASE + "build/" });
+  const { sb, target } = sandbox({ language: "zh-TW", path: BASE + "build.html" });
   run(sb);
-  assert.equal(target.replaced, BASE + "zh/build/");
+  assert.equal(target.replaced, BASE + "zh/build.html");
 });
 
 test("a zh browser already on a zh page stays put", () => {
@@ -65,7 +73,7 @@ test("non-zh browsers are never redirected", () => {
 test("second visit never redirects, even for a zh browser on an English page", () => {
   const { sb, target, storage } = sandbox({
     language: "zh-CN",
-    path: BASE + "features/",
+    path: BASE + "features.html",
     stored: "auto",
   });
   run(sb);
@@ -74,11 +82,26 @@ test("second visit never redirects, even for a zh browser on an English page", (
 });
 
 test("asset-looking paths are not redirected", () => {
-  for (const p of [BASE + "assets/logo.png", BASE + "sitemap.xml", BASE + "robots.txt"]) {
+  for (const p of [
+    BASE + "assets/logo.png",
+    BASE + "assets/index-Bx2f3q.css",
+    BASE + "assets/app-Cx9t2k.js",
+    BASE + "assets/app-Cx9t2k.js.map",
+    BASE + "assets/logo.svg",
+    BASE + "assets/icon.woff2",
+    BASE + "sitemap.xml",
+    BASE + "robots.txt",
+  ]) {
     const { sb, target } = sandbox({ language: "zh-CN", path: p });
     run(sb);
     assert.equal(target.replaced, null, p);
   }
+});
+
+test("the 404 fallback page is never bounced to a second 404", () => {
+  const { sb, target } = sandbox({ language: "zh-CN", path: BASE + "404.html" });
+  run(sb);
+  assert.equal(target.replaced, null);
 });
 
 test("the site root is redirected to the zh root", () => {
@@ -90,12 +113,12 @@ test("the site root is redirected to the zh root", () => {
 test("query and hash survive the redirect", () => {
   const { sb, target } = sandbox({
     language: "zh-CN",
-    path: BASE + "features/",
+    path: BASE + "features",
     search: "?x=1",
     hash: "#anchors",
   });
   run(sb);
-  assert.equal(target.replaced, BASE + "zh/features/?x=1#anchors");
+  assert.equal(target.replaced, BASE + "zh/features?x=1#anchors");
 });
 
 test("paths outside the configured base are left alone", () => {
