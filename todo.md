@@ -5,31 +5,31 @@
 ## 链码（chaincode/playsmith-assets）
 
 - [x] 鉴权落地：`Mint` 校验 `role=MINTER` 证书属性；`Transfer` 校验调用方为 owner 或已授权 operator（代码内 TODO，`main.go:40` / `main.go:59`）
-  - 证据：`chaincode/playsmith-assets/main.go:381`（`requireMinter`）、`:392`（`requireTransferAuth`）；`Mint` 调用于 `:34`、`Transfer` 于 `:65`；测试 `TestMintRequiresMinterRole`/`TestTransferOwnerAndOperator` 通过（`go test ./...`，2026-11-05）
+  - 证据：`chaincode/playsmith-assets/main.go:381`（`requireMinter`）、`:392`（`requireTransferAuth`）；`Mint` 调用于 `:34`、`Transfer` 于 `:65`；测试 `TestMintRequiresMinterRole`/`TestTransferOwnerAndOperator` 通过（`go test ./...`，2026-11-05）；commit `1a1aa6b`
 - [x] `ListForSale` 校验 seller 余额 ≥ amount（SPEC.md Authorization 一节的 spec target）
-  - 证据：`chaincode/playsmith-assets/main.go:374`（`requireBalance`）、`:91`；测试 `TestListForSaleRequiresBalance` 通过
+  - 证据：`chaincode/playsmith-assets/main.go:374`（`requireBalance`）、`:91`；测试 `TestListForSaleRequiresBalance` 通过；commit `1a1aa6b`
 - [x] `Trade` 事件补 `price`/`priceHash` 字段（SPEC.md 承诺携带；当前公共/私有上架均不带）
-  - 证据：`chaincode/playsmith-assets/main.go:166-173`（公共带 `price`、私有带 `priceHash`）；测试 `TestTradeEventPriceFields`/`TestPrivateTradeEventPriceHash` 通过
+  - 证据：`chaincode/playsmith-assets/main.go:166-173`（公共带 `price`、私有带 `priceHash`）；测试 `TestTradeEventPriceFields`/`TestPrivateTradeEventPriceHash` 通过；commit `1a1aa6b`
 - [x] `ask` 公共卖单值改为 JSON（含 `ts`），与私有卖单统一（当前为 `"<price>:<amount>"` 拼接串）
-  - 证据：`chaincode/playsmith-assets/main.go:96`（JSON `{amount, price, ts}`）、`:331`/`:336`（私有含 `ts`）；测试 `TestPublicAskIsJSONWithTS` 通过
+  - 证据：`chaincode/playsmith-assets/main.go:96`（JSON `{amount, price, ts}`）、`:331`/`:336`（私有含 `ts`）；测试 `TestPublicAskIsJSONWithTS` 通过；commit `1a1aa6b`
 
 ## API Gateway（cmd/api）
 
 - [x] 修复 `GET /api/v1/assets/{id}/balance/{owner}` 路由解析：`main.go:179` 只在 `len(parts)==4` 时命中 `balance`，实际路径切分后为 3 段，永远 404
-  - 证据：`cmd/api/main.go:487`（`len(parts)==3`）；测试 `TestBalanceRouteParses`/`TestBalanceRouteWrongSegments404` 通过
+  - 证据：`cmd/api/main.go:487`（`len(parts)==3`）；测试 `TestBalanceRouteParses`/`TestBalanceRouteWrongSegments404` 通过；commit `1a1aa6b`
 - [x] 接入 Fabric Gateway SDK，替换 `internal/sdk` 的 `NoopClient`（当前所有提交返回 `TX_NOOP`）
-  - 证据：`internal/sdk/gateway.go`（`GatewayClient`+`NewGatewayClient`）、`cmd/api/main.go:230-246`（环境变量切换）；README 路线图勾选
+  - 证据：`internal/sdk/gateway.go`（`GatewayClient`+`NewGatewayClient`）、`cmd/api/main.go:230-246`（环境变量切换）；README 路线图勾选；commit `1a1aa6b`
 - [x] JWT 鉴权与 gRPC 面（README 路线图项）
-  - 证据：`internal/auth/jwt.go`（HS256 签发/校验，`JWT_SECRET`≥32B，iss=`playsmith`/aud=`game-server`）；`cmd/api/main.go:issueToken`（`X-Issue-Secret` 签发）、`authMiddleware`（REST bearer）、`grpcAuthUnaryInterceptor`（gRPC bearer）；`internal/gateway/service.go`（gRPC 面，镜像 REST）；proto `proto/playsmith/v1/gateway.proto`；测试 `TestIssueValidate`/`TestAuthMiddlewareRequiresToken`/`TestGRPCAuthInterceptor`/`TestMint` 等通过（`go test ./...`，2026-11-06）
+  - 证据：`internal/auth/jwt.go`（HS256 签发/校验，`JWT_SECRET`≥32B，iss=`playsmith`/aud=`game-server`）；`cmd/api/main.go:issueToken`（`X-Issue-Secret` 签发）、`authMiddleware`（REST bearer）、`grpcAuthUnaryInterceptor`（gRPC bearer）；`internal/gateway/service.go`（gRPC 面，镜像 REST）；proto `proto/playsmith/v1/gateway.proto`；测试 `TestIssueValidate`/`TestAuthMiddlewareRequiresToken`/`TestGRPCAuthInterceptor`/`TestMint` 等通过（`go test ./...`，2026-11-06）；commit `08b426c`
 - [x] `market/cancel` 请求体 struct 无 json tag（当前只接受 Go 默认大写键 `TokenID/Seller/ListingID`，与其余端点的小写键风格不一致）
-  - 证据：`cmd/api/main.go:143-145`（`json:"tokenId"` 等小写 tag）；测试 `TestCancelUsesLowercaseJSON` 通过
+  - 证据：`cmd/api/main.go:143-145`（`json:"tokenId"` 等小写 tag）；测试 `TestCancelUsesLowercaseJSON` 通过；commit `1a1aa6b`
 
 ## Indexer / 部署
 
 - [x] `cmd/indexer` 真实现：订阅链码事件（TransferSingle/TransferBatch/AskCreated/AskCanceled/Trade）并 upsert Postgres（当前为 10s tick 占位）
-  - 证据：`cmd/indexer/main.go:123`（`HandleEvent` 分发 5 类事件）、`:30-84`（schema 建表）、`:405`（`ChaincodeEvents` 订阅）；测试 `TestTransferSingleUpsert` 等通过
+  - 证据：`cmd/indexer/main.go:123`（`HandleEvent` 分发 5 类事件）、`:30-84`（schema 建表）、`:405`（`ChaincodeEvents` 订阅）；测试 `TestTransferSingleUpsert` 等通过；commit `1a1aa6b`
 - [x] 补 `playsmithPvt` 私有数据集合的 collections 配置 JSON（`ListForSalePrivate`/`CancelListing` 已调用 `PutPrivateData`，无配置文件则部署失败）
-  - 证据：`deploy/collections.json`（`playsmithPvt` 集合定义）
+  - 证据：`deploy/collections.json`（`playsmithPvt` 集合定义）；commit `1a1aa6b`
 
 ## 审核发现
 
@@ -39,7 +39,7 @@
 - [x] 审核发现：HTTP 和 gRPC 均监听明文连接，直接部署时签发密钥及 bearer token 会在网络中明文传输，泄露后可伪造令牌或冒用调用者（cmd/api/main.go:282）。
   - 证据：`cmd/api/main.go` `serveGRPC` 在设 `TLS_CERT_PATH`/`TLS_KEY_PATH` 时用 `credentials.NewServerTLSFromFile` 加 `grpc.Creds`；HTTP 用 `http.ListenAndServeTLS`；两者都未配置时回退明文（开发模式）；**只配置其中一个会启动失败**（`tlsConfig()`，`cmd/api/main.go:508`；commit `f766404`，测试 `TestTLSConfigRejectsHalfConfiguration`）；`tlsPaths()` 读环境变量；测试 `TestTLSPaths` 通过。
 - [x] 审核发现：所有 gRPC 交易响应只填充 result 而从未填充 proto 定义的 tx_id，真实链码无返回值的交易也无法提供交易标识供客户端追踪（internal/gateway/service.go:43）。
-  - 证据：`internal/sdk` `Client.Submit`/`SubmitWithTransient` 返回 `(result, txID, error)`；`GatewayClient` 用 `SubmitAsync`+`commit.Status()` 取 `TransactionID`；`internal/gateway/service.go` `txResponse` 填充 `TxId`（含无返回值交易如 `CancelListing`）；测试 `TestMint`（断言 `TxId`）/`TestCancelListingCarriesTxID` 通过。
+  - 证据：`internal/sdk` `Client.Submit`/`SubmitWithTransient` 返回 `(result, txID, error)`；`GatewayClient` 用 `SubmitAsync`+`commit.Status()` 取 `TransactionID`；`internal/gateway/service.go` `txResponse` 填充 `TxId`（含无返回值交易如 `CancelListing`）；测试 `TestMint`（断言 `TxId`）/`TestCancelListingCarriesTxID` 通过。；commit `64e0fe0`
 
 ## 源码分层分析 2026-11-07
 
@@ -55,7 +55,7 @@
 ### b) 超大文件候选（>1000 行）
 
 - [x] LAY-001 [P1] 拆分 `internal/gatewaypb/gateway.pb.go`（1172 行）——生成物与源码提交混在同一目录，升级/维护时容易掩盖手写接口变更（`internal/gatewaypb/gateway.pb.go:1`）。
-  - 证据：生成物迁至独立生成目录 `internal/gatewaypb/gen/`（`gen/gateway.pb.go`、`gen/gateway_grpc.pb.go`，均带 `DO NOT EDIT` 头，git 识别为 rename）；`Makefile` 提供 `proto`（再生成）与 `proto-check`（禁改守卫：生成物漂移即 `ERROR: ... out of date` 失败，负测试手工篡改 `gateway.pb.go` 确触发，改回后通过）；`gen/doc.go` 包注释 + `gen/README.md` 标记；proto `go_package` 更新为 `playsmith/internal/gatewaypb/gen;gatewaypb`；`make proto-check` / `go build ./...` / `go vet ./...` / `go test ./...` 全部通过（2026-11-09）。
+  - 证据：生成物迁至独立生成目录 `internal/gatewaypb/gen/`（`gen/gateway.pb.go`、`gen/gateway_grpc.pb.go`，均带 `DO NOT EDIT` 头，git 识别为 rename）；`Makefile` 提供 `proto`（再生成）与 `proto-check`（禁改守卫：生成物漂移即 `ERROR: ... out of date` 失败，负测试手工篡改 `gateway.pb.go` 确触发，改回后通过）；`gen/doc.go` 包注释 + `gen/README.md` 标记；proto `go_package` 更新为 `playsmith/internal/gatewaypb/gen;gatewaypb`；`make proto-check` / `go build ./...` / `go vet ./...` / `go test ./...` 全部通过（2026-11-09）。；commit `04f4fad`
 
 ### c) 目录/分类不合理处
 
@@ -108,7 +108,7 @@
 ## G2 文档审计待办（2026-11-14）
 
 - [x] P1：建最小 vitepress 文档站（locales：`/`=en、`/zh/`=zh）+ README 双语对（README.md / README.zh.md）。
-  - 证据：`docs/.vitepress/config.mts`（base `/Playsmith/`，root=en-US + zh=zh-CN，srcExclude 审计台账，`ignoreDeadLinks` 仅豁免跨树 `../` 证据链接）；英文页 `docs/index.md`/`features.md`/`configuration.md`/`build.md` + 中文镜像 `docs/zh/*`（features 路由表取自 `cmd/api/main.go:293-305`，配置表含全部 env 读取行号，构建表照 Makefile 实测）；部署 `.github/workflows/pages.yml`（pnpm + configure-pages + upload-pages-artifact `docs/.vitepress/dist`）；`pnpm-workspace.yaml`（`allowBuilds: {esbuild: false}`，pnpm≥11 语义，postinstall 缺席不影响构建）；`docs/package.json`（`@playsmith/docs`）；README.md 拆为英文 + README.zh.md（互链）。本地门禁：`pnpm install` 退出 0；`pnpm --filter @playsmith/docs build` 绿（client+server bundles、12 页含 zh/ 4 页、`/`↔`/zh/` 切换双向可达、`<html lang>` en-US/zh-CN 正确）；`make test`（proto 守卫 + go test）绿。线上探针旧值 404 属部署前快照，Pages 首次部署后需复测（见审计报告 G2 面 2）。Pages 首次部署后线上复测（2026-11-21，`https://cuihairu.github.io/Playsmith`）：`/zh/`、`/features`、`/zh/features`、`/configuration`、`/zh/configuration`、`/build`、`/zh/build` 均 200，`<html lang>` 分别为 zh-CN / en-US 正确；`/` 为 301 规范跳转至 `/Playsmith/`，跟随后 200；`/`↔`/zh/` 双向可达。
+  - 证据：`docs/.vitepress/config.mts`（base `/Playsmith/`，root=en-US + zh=zh-CN，srcExclude 审计台账，`ignoreDeadLinks` 仅豁免跨树 `../` 证据链接）；英文页 `docs/index.md`/`features.md`/`configuration.md`/`build.md` + 中文镜像 `docs/zh/*`（features 路由表取自 `cmd/api/main.go:293-305`，配置表含全部 env 读取行号，构建表照 Makefile 实测）；部署 `.github/workflows/pages.yml`（pnpm + configure-pages + upload-pages-artifact `docs/.vitepress/dist`）；`pnpm-workspace.yaml`（`allowBuilds: {esbuild: false}`，pnpm≥11 语义，postinstall 缺席不影响构建）；`docs/package.json`（`@playsmith/docs`）；README.md 拆为英文 + README.zh.md（互链）。本地门禁：`pnpm install` 退出 0；`pnpm --filter @playsmith/docs build` 绿（client+server bundles、12 页含 zh/ 4 页、`/`↔`/zh/` 切换双向可达、`<html lang>` en-US/zh-CN 正确）；`make test`（proto 守卫 + go test）绿。线上探针旧值 404 属部署前快照，Pages 首次部署后需复测（见审计报告 G2 面 2）。Pages 首次部署后线上复测（2026-11-21，`https://cuihairu.github.io/Playsmith`）：`/zh/`、`/features`、`/zh/features`、`/configuration`、`/zh/configuration`、`/build`、`/zh/build` 均 200，`<html lang>` 分别为 zh-CN / en-US 正确；`/` 为 301 规范跳转至 `/Playsmith/`，跟随后 200；`/`↔`/zh/` 双向可达。；commit `69880e0`
 - [x] P2：文档站首访按 `navigator.language` 自动跳转 `/zh/`（增强项，基线为手动切换+显式链接；等用户拍板范围，不随建站默认实施）。当前站内切换仅手动：locale 菜单落 `/` 与 `/zh/`，无 rootLocale 重定向、无 navigator.language 探测。fleet-docs-audit-G2 2026-11-14。（2026-11-21 用户令「继续清任务」，视为对本增强项的拍板，落地实施。）
   - 证据：`docs/.vitepress/redirect.mjs` `redirectSnippet(base)` 产出内联脚本（`navigator.language` 以 `zh` 开头且当前页不在 `/zh/` 下时 `location.replace` 到同路径 `/zh/` 孪生页，保留 query/hash；真实资源路径与 base 外路径不动；`localStorage['ps-locale']` 一次性标记使自动跳转只在首访发生，之后手动切换是唯一语言来源——自动跳转不再与用户后续的手动选择打架）；`docs/.vitepress/config.mts` 经 `head` 注入，base 以同一常量插值不漂移；`docs/.vitepress/redirect.test.mjs` 以 node:vm 跑产物字符串本身 11 例（zh/zh-TW 首访跳转、`/features` 与 `/features.html` 两种可达形态都跳、已在 zh 不跳、en 不跳、二访不跳且标记不再覆写、8 类资源路径不跳、`404.html` 不跳、根页跳转、query+hash 保留、base 外不跳、隐私模式无 localStorage 不抛不跳）。门禁：`pnpm --filter @playsmith/docs test` 11/11 绿、`pnpm --filter @playsmith/docs build` 绿且 12 个产物 HTML 全含该脚本（对构建压缩后的产物原文再跑 7 例沙箱验证均正确）、pages workflow 构建前先跑 test、`make test` 双模块绿。commit `c860313`。
     - 修正扁平产物缺口（commit `07c5f37`）：本构建产物是扁平 `features.html`，`/features/` 在 GitHub Pages 上 404，可达形态只有 `/features` 与 `/features.html`；原「跳过一切带扩展名路径」的守卫会把页面一并拦下，导致 zh 用户落在 `/features.html` 不跳转。改为只跳过真实资源类型（css/js/mjs/map/png/svg/ico/webp/jpg/jpeg/gif/xml/txt/json/woff/woff2），并额外跳过 `404.html`，避免把回退页踢成第二次 404。
@@ -126,7 +126,7 @@
 - [x] 既然上面那次编辑就制造了一处行号漂移，说明文档里 `file:line` 引用需要系统核验：对 14 个文档文件提取全部 `路径:行号` 引用与源码实际比对（引用行必须存在；文档就近写明标识符时，该标识符须落在引用行 ±3 行窗口内）。
   - 证据：222 处引用全部通过，**0 处漂移**（唯一两例即上面已修的 `fabric.go:13→17`）；另有 7 处 `../<path>:<line>` 为 `docs/` 源码根下的跨树证据链接（正是 `config.mts` 的 `ignoreDeadLinks: [/^(\.\/)?\.\.\//]` 豁免的那类），按 `docs/` 相对路径逐一确认文件均存在。当时的校验是 `/tmp` 一次性脚本；该职责已由入库的 `tools/check_citations.py` 常驻门禁取代（见本文件 CI 门禁节引用门禁行，`cdc3ec0`）。
 - [x] 环境变量口径双向核验：`docs/configuration.md` 声称覆盖全部 env 读取行号，故对「代码 `os.Getenv` 实际读取」与「文档列出」做双向比对。
-  - 证据：代码侧（排除生成物）共 12 个 `os.Getenv` 变量——`FABRIC_CERT_PATH`、`FABRIC_CHANNEL_NAME`、`FABRIC_GATEWAY_ENDPOINT`、`FABRIC_KEY_PATH`、`FABRIC_MSP_ID`、`FABRIC_TLS_PATH`、`GRPC_PORT`、`JWT_SECRET`、`PORT`、`POSTGRES_DSN`、`TLS_CERT_PATH`、`TLS_KEY_PATH`，**全部在文档中列出**；反向，文档 env 表中 11 个带下划线的变量（`PORT` 因长度被过滤条件排除，已单独确认有文档）**全部在代码中被读取**。无未文档化的隐式配置，无文档化的幽灵变量。
+  - 证据：代码侧（排除生成物）共 12 个 `os.Getenv` 变量——`FABRIC_CERT_PATH`、`FABRIC_CHANNEL_NAME`、`FABRIC_GATEWAY_ENDPOINT`、`FABRIC_KEY_PATH`、`FABRIC_MSP_ID`、`FABRIC_TLS_PATH`、`GRPC_PORT`、`JWT_SECRET`、`PORT`、`POSTGRES_DSN`、`TLS_CERT_PATH`、`TLS_KEY_PATH`，**全部在文档中列出**；反向，文档 env 表中 11 个带下划线的变量（`PORT` 因长度被过滤条件排除，已单独确认有文档）**全部在代码中被读取**。无未文档化的隐式配置，无文档化的幽灵变量。；核验基线 commit `69880e0`
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 77 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:96`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
