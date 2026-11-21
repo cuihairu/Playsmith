@@ -114,6 +114,8 @@
     - 修正扁平产物缺口（commit `07c5f37`）：本构建产物是扁平 `features.html`，`/features/` 在 GitHub Pages 上 404，可达形态只有 `/features` 与 `/features.html`；原「跳过一切带扩展名路径」的守卫会把页面一并拦下，导致 zh 用户落在 `/features.html` 不跳转。改为只跳过真实资源类型（css/js/mjs/map/png/svg/ico/webp/jpg/jpeg/gif/xml/txt/json/woff/woff2），并额外跳过 `404.html`，避免把回退页踢成第二次 404。
     - 线上复核（2026-11-21）：pages 运行 `completed success` 后，`https://cuihairu.github.io/Playsmith/` 与 `/zh/` 的已部署 HTML 均含该脚本（各 1 处）。`07c5f37` 修复部署后复测：`/`、`/zh/`、`/features.html`、`/404.html` 的已部署 HTML 均含新的 `404.html` 守卫，扁平产物修正已在线上生效。
     - 运维备忘（2026-11-21，踩坑后记录）：本 pages 工作流**不要用 `gh run rerun --failed`** 修 `deploy-pages` 失败——它会重跑 `upload-pages-artifact`，同一 run 内产生 2 个同名 `github-pages` 产物，`deploy-pages` 随即报 `Multiple artifacts named "github-pages"`。正确做法：`gh workflow run pages --ref main` 触发全新 run。`deploy-pages` 报 `Found 0 artifact(s)` + `Fetching artifact metadata failed` 属平台侧抖动，test/build 已绿时无需改代码。
+    - 运维备忘（2026-11-21，踩坑后记录）：在线上探针里核对重定向脚本，标记**必须**用压缩后的真实形式 `+"404.html"`。若写成 `404.html";`（带分号），grep 会稳定返回 0 而产生假阴性——压缩产物里该守卫是 `+"404.html")` 而非 `;"`。假阴性一旦当真，会被误读成「脚本丢失/构建回归」。
+    - 线上复核（2026-11-21，`ab8b592` 推送前，deploy 自 `35898d6`）：`ci` 与 `pages` 两个 workflow 在 `35898d6` 上均 `completed/success`。`/Playsmith/configuration` 与 `/Playsmith/zh/configuration` 的已部署 HTML 各含 `JWT_IDENTITY_MAP` 2 处（env 表行 + 注意点段落），签发侧门禁的文档口径已在线上；`/`、`/zh/`、`/features.html`、`/404.html` 各含 `+"404.html"` 守卫 1 处，首访重定向无回归。
 
 ## 代码卫生（2026-11-21 巡检，全仓 `TODO`/`FIXME` 清扫）
 
