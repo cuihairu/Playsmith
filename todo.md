@@ -109,6 +109,11 @@
     - 修正扁平产物缺口（commit `07c5f37`）：本构建产物是扁平 `features.html`，`/features/` 在 GitHub Pages 上 404，可达形态只有 `/features` 与 `/features.html`；原「跳过一切带扩展名路径」的守卫会把页面一并拦下，导致 zh 用户落在 `/features.html` 不跳转。改为只跳过真实资源类型（css/js/mjs/map/png/svg/ico/webp/jpg/jpeg/gif/xml/txt/json/woff/woff2），并额外跳过 `404.html`，避免把回退页踢成第二次 404。
     - 线上复核（2026-11-21）：pages 运行 `completed success` 后，`https://cuihairu.github.io/Playsmith/` 与 `/zh/` 的已部署 HTML 均含该脚本（各 1 处）。`07c5f37` 修复部署后复测：`/`、`/zh/`、`/features.html`、`/404.html` 的已部署 HTML 均含新的 `404.html` 守卫，扁平产物修正已在线上生效。
     - 运维备忘（2026-11-21，踩坑后记录）：本 pages 工作流**不要用 `gh run rerun --failed`** 修 `deploy-pages` 失败——它会重跑 `upload-pages-artifact`，同一 run 内产生 2 个同名 `github-pages` 产物，`deploy-pages` 随即报 `Multiple artifacts named "github-pages"`。正确做法：`gh workflow run pages --ref main` 触发全新 run。`deploy-pages` 报 `Found 0 artifact(s)` + `Fetching artifact metadata failed` 属平台侧抖动，test/build 已绿时无需改代码。
+
+## 代码卫生（2026-11-21 巡检，全仓 `TODO`/`FIXME` 清扫）
+
+- [x] 清理 `internal/sdk/fabric.go` 过时的 `// TODO: implement with fabric-gateway`：该 TODO 暗示 Gateway SDK 接入尚未实现，但真实实现早已在 `internal/sdk/gateway.go`（`GatewayClient`/`NewGatewayClient`，对应本文件第 20 行「接入 Fabric Gateway SDK」勾选项）；`NoopClient` 只是 `FABRIC_GATEWAY_ENDPOINT` 未设时的开发兜底（`cmd/api/main.go:244-245`），并非未完成项。已改为准确注释，说明其为有意的开发占位并指向 `gateway.go`。
+  - 证据：`internal/sdk/fabric.go:13-17`（新注释，删除误导 TODO）；`grep -rn "NoopClient" --include=*.go` 仅剩定义处与 `cmd/api/main.go:244` 兜底接入，无任何测试依赖 `TX_NOOP`；`grep -rnE "TODO|FIXME"` 在 `.go`/`.mts`/`.mjs`/`.proto` 下已无命中（`make test` 双模块绿，含 proto 守卫）。commit `3476475`。
 - [x] [Minor] JWT 整体修复被提前勾选，证据不足以支持完成状态
   - 证据：已按修复方向拆为两项并各自写明范围——按操作授权臂 `[x]`（本文件第 36 行，`5f0c8be`；2026-11-15 起链码侧门禁补于 `e922b90`），身份隔离臂单独标为 `- [Critical-BLOCKED]`（本文件第 75 行，位置 `internal/auth/authorize.go:26` + `cmd/api/main.go:104`，未修）；本条 Minor 只针对勾选范围失真，现已被第 36/75 行的拆分取代。 | 位置 [todo.md:36](/home/cui/workspaces/Playsmith/todo.md:36) | 问题：`5f0c8be` 将身份绑定问题改为 `[x]`，但第 38 行同时写明“未修”；代码证据仅支持 [authorize.go:31](/home/cui/workspaces/Playsmith/internal/auth/authorize.go:31) 的 Mint/BatchMint 角色门禁。当前未提交的第 69 行又重新登记了该风险 | 影响：账本会把尚未完成的身份隔离呈现为已关闭 | 修复方向：拆分角色门禁与身份绑定两项，分别记录准确 SHA、当前位置和验证范围。
 
