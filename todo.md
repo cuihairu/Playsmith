@@ -66,7 +66,7 @@
   - 证据：`Makefile:33`/`Makefile:37`（`build: proto-check`、`test: proto-check`，守卫先于编译/测试）；负测试：手工篡改 `gen/gateway.pb.go` 后 `make test` 在守卫阶段即报 `ERROR: gateway.pb.go is out of date` 并失败（退出码 2），还原后通过；`make build` 同样先跑守卫；`go build ./...`/`go vet ./...`/`make proto-check`/`go test ./...` 全绿（commit `2e92e6c`，2026-11-09）。
 - [x] 审核发现：生成检查逐字比较含 protoc 版本号的生成文件，但 `proto-install` 只固定插件版本而未安装或校验 protoc 版本，使用其他版本 protoc 时即使协议未变也会错误报生成物过期（Makefile:40）。
   - 证据：`Makefile:22`（`PROTOC_VERSION := 3.21.12` 固定）、`Makefile:46-56`（`proto-doctor` 校验 protoc 存在且版本精确匹配）；`proto`/`proto-check`/`proto-install` 均先过 `proto-doctor`；负测试：`make proto-check PROTOC_VERSION=9.9.9` 报 `ERROR: protoc version mismatch: found 3.21.12, need 9.9.9`（不再误报"生成物过期"）、`PROTOC=/nonexistent` 报 not found、`make proto PROTOC_VERSION=9.9.9` 拒绝再生成；全绿（commit `2e92e6c`，2026-11-09）。
-- [ ] 审核发现：`Authorize` 仅校验可签发的 JWT 角色并用共享 Fabric MINTER 证书提交 Mint/BatchMint，未把 JWT subject/mspId 绑定到独立链上身份，身份越权风险未闭环（internal/auth/authorize.go:26）。
+- [Blocked] 审核发现：`Authorize` 仅校验可签发的 JWT 角色并用共享 Fabric MINTER 证书提交 Mint/BatchMint，未把 JWT subject/mspId 绑定到独立链上身份，身份越权风险未闭环（internal/auth/authorize.go:26）。
   - BLOCKED 缺什么：与第 77 行 Codex `[Critical-BLOCKED]` 为同一问题（先后两次登记）。需 (a) Fabric CA 为每个游戏服单独签发 X.509 并下发公钥；(b) 私钥托管/轮换机制（Vault/KMS），按 subject/mspId 选择签名身份；(c) 多 MSP 真实测试环境覆盖跨身份隔离用例。三者均不在仓内可修范围，详见第 77 行，不重复展开。
   - 仓库内已落地的部分（见第 79 行）：`JWT_IDENTITY_MAP` 绑定门禁（commit `a658533`、`1ffd41c`）已决定「哪些主体有资格行动/可被签发令牌」，但从不把 subject/mspId 映射到独立链上身份——进程内仍只有一个签名证书。故本项仍不勾选。
 
@@ -176,3 +176,4 @@
 - 第 69/77 行 BLOCKED 独立复核（2026-11-25）：仓内 `deploy/` 仅 `README.md`+`collections.json`，全仓无 docker-compose / cryptogen / fabric-ca / test-network 编排；宿主 `docker` 在，但 `cryptogen`、`fabric-ca-client`、`configtxgen` 均缺失，无法本地生成第二身份。代码侧证实单签名身份——`internal/sdk/gateway.go:46-70` 只加载一组证书并 `client.Connect(id, ...)` 一次，`cmd/api/main.go:232-234` 仅读单组 `FABRIC_MSP_ID`/`FABRIC_CERT_PATH`/`FABRIC_KEY_PATH`，无 subject/mspId → 签名身份选择机制。缺 (a)(b)(c) 属实，两项继续 BLOCKED，不勾选。
 - 第 166 行隔日复核（2026-11-22 / 11-25 / 11-26 三次 `npm view vitepress dist-tags`）：均 `latest=1.6.4`、`next=2.0.0-alpha.21`，仍无稳定 2.x；该项继续 BLOCKED，不降级到预发布版。
 - 复核期间远端 0 新增提交、todo.md 未被改动（mtime 2026-11-22 00:35）；全部可修项已在 `4741213` 前完毕。本轮为纯复核记账：未勾选任何行、未改代码。
+- 派发循环根因（2026-11-26）：`fleet-idle-watch.sh` 以 `grep -c '^- \[ \]'` 判 open，只认 `- [ ]` 不认 `[Blocked]`——第 69 行作为唯一 `- [ ]` 残留使调度器误判 open=1 持续点火（12 轮退避后 STALL、新 commit 清零再来）。该行自注本就写明「与第 77 行 BLOCKED 同一问题、不勾选」，现把标记从 `[ ]` 改为 `[Blocked]` 与 77/166 行统一：状态如实（问题未闭环、仓外阻塞），调度器可正确停派。
